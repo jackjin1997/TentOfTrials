@@ -1,0 +1,42 @@
+name: Generate branch diagnostics
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch or SHA to build
+        required: true
+        default: fix-windows-diagnostic-logd
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out requested ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+
+      - name: Check build script syntax
+        run: python3 -m py_compile build.py
+
+      - name: Run build and diagnostics
+        run: python3 build.py
+        continue-on-error: true
+
+      - name: Verify diagnostic files
+        run: |
+          set -euo pipefail
+          ls -la diagnostic
+          test -n "$(find diagnostic -maxdepth 1 -name 'build-*.logd' -type f -size +0 -print -quit)"
+          test -n "$(find diagnostic -maxdepth 1 -name 'build-*.json' -type f -size +0 -print -quit)"
+
+      - name: Upload diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: tent-diagnostics
+          path: |
+            diagnostic/build-*.logd
+            diagnostic/build-*.json
