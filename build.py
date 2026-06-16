@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+"""Build and diagnostic artifact generator for the Tent of Trials modules.
+
+This script checks local toolchain prerequisites, builds selected language
+modules, and writes encrypted diagnostic metadata for bounty validation.
+"""
 
 import argparse
 import datetime
