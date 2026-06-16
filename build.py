@@ -69,6 +69,17 @@ def split_diagnostic_logd(logd_path: Path, chunk_size: int = DIAGNOSTIC_CHUNK_SI
     return chunks
 
 
+def remove_stale_diagnostic_logd(logd_path: Path) -> None:
+    """Remove stale .logd outputs for this commit before generating a fresh bundle."""
+    if logd_path.exists():
+        logd_path.unlink()
+
+    part_pattern = f"{logd_path.stem}-part*.logd"
+    for part in logd_path.parent.glob(part_pattern):
+        if part.is_file():
+            part.unlink()
+
+
 @dataclass
 class Module:
     name: str
@@ -599,6 +610,7 @@ def generate_logd(
     logd_path, metadata_path, commit_id = diagnostic_paths_for_commit()
     display_logd = logd_path.relative_to(ROOT)
     print(f"\n  {color('▸', Colors.CYAN)} Finalizing diagnostics for {color(str(display_logd), Colors.BOLD)}...")
+    remove_stale_diagnostic_logd(logd_path)
 
     # Always write the JSON report first. The encrypted .logd is useful, but the
     # report is required even when the build failed before compilation started or
@@ -626,10 +638,13 @@ def generate_logd(
     home = Path.home()
     workspace = home / ".cache" / "tent-of-trials" / "logd-workspace"
     safe_dir = workspace / "safe"
+    output_dir = workspace / "out"
+    staged_logd_path = output_dir / logd_path.name
 
     try:
         shutil.rmtree(workspace, ignore_errors=True)
         safe_dir.mkdir(parents=True, exist_ok=True)
+        output_dir.mkdir(parents=True, exist_ok=True)
 
         (safe_dir / "system-info.txt").write_text(
             collect_system_info(), encoding="utf-8"
@@ -670,9 +685,9 @@ def generate_logd(
             [
                 str(encryptly_bin),
                 "pack",
-                str(logd_path),
+                str(staged_logd_path),
                 "--include",
-                str(workspace),
+                str(safe_dir),
                 "--max-file-size",
                 "61440",
             ],
@@ -702,6 +717,16 @@ def generate_logd(
             commit_diagnostic_artifacts([metadata_path], commit_id)
             return False
 
+        if not staged_logd_path.exists():
+            error = f"encryptly pack did not create {staged_logd_path}"
+            print(f"    {color('✗', Colors.RED)} {error}")
+            write_diagnostic_report(
+                metadata_path,
+                build_diagnostic_report(results, commit_id, logd_error=error),
+            )
+            return False
+
+        shutil.copy2(staged_logd_path, logd_path)
         safe_pw = sr.stdout.strip()
         logd_files = split_diagnostic_logd(logd_path)
         logd_relpaths = [str(path.relative_to(ROOT)) for path in logd_files]
@@ -742,6 +767,15 @@ def generate_logd(
             print(f"  {color(safe_pw, Colors.CYAN)}")
             print(f"  {color(f'encryptly unpack {decrypt_target} <outdir> --password {safe_pw}', Colors.GRAY)}")
         return True
+
+    except Exception as e:
+        error = f"diagnostic logd generation failed: {type(e).__name__}: {e}"
+        print(f"    {color('✗', Colors.RED)} {error}")
+        write_diagnostic_report(
+            metadata_path,
+            build_diagnostic_report(results, commit_id, logd_error=error),
+        )
+        return False
 
     finally:
         shutil.rmtree(workspace, ignore_errors=True)
@@ -894,8 +928,14 @@ Diagnostic bundle:
     results: list[tuple[str, bool, float, str, Optional[str]]] = []
 
     for module in selected:
-        success, elapsed, output = build_module(module, args.release, args.verbose)
-        binary = verify_binary(module) if success else None
+        try:
+            success, elapsed, output = build_module(module, args.release, args.verbose)
+            binary = verify_binary(module) if success else None
+        except Exception as e:
+            success = False
+            elapsed = 0
+            output = f"Unhandled build error: {type(e).__name__}: {e}"
+            binary = None
         results.append((module.name, success, elapsed, output, binary))
 
     print_summary(results)
