@@ -129,7 +129,7 @@ impl FrameEncoder {
         buf.extend_from_slice(&frame.flags.to_be_bytes());
         buf.extend_from_slice(&(frame.payload.len() as u32).to_be_bytes());
         buf.extend_from_slice(&frame.sequence.to_be_bytes());
-        buf.extend_from_slice(&[0u8; 4]); // reserved
+        buf.extend_from_slice(&[0u8; 8]); // reserved
 
         // Payload
         buf.extend_from_slice(&frame.payload);
@@ -222,7 +222,7 @@ impl FrameDecoder {
         let sequence = u32::from_be_bytes(seq_bytes);
 
         // Skip reserved bytes
-        let mut reserved = [0u8; 4];
+        let mut reserved = [0u8; 8];
         cursor.read_exact(&mut reserved).map_err(|_| ProtocolError::InvalidMessage)?;
 
         // Check if we have the full frame
