@@ -163,3 +163,47 @@ func TestAuthenticatedRequestsAreRateLimitedSeparatelyFromAnonymousIP(t *testing
 		t.Fatalf("second authenticated status = %d, want %d", repeatedAuthenticated.Code, http.StatusTooManyRequests)
 	}
 }
+
+func TestRateLimitUsesAPIKeyFallbackAndAuthenticatedUserPrecedence(t *testing.T) {
+	setTokenValidatorForTest(t, func(token string) (string, string, error) {
+		if token != "good-token" {
+			t.Fatalf("validator saw token %q, want good-token", token)
+		}
+		return "user-123", "session-456", nil
+	})
+
+	limiter := RateLimitMiddleware(0.001, 1)
+	apiKeyHandler := limiter(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	authenticatedHandler := AuthMiddleware(limiter(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})))
+
+	firstAPIKeyRequest := newMiddlewareRequest("")
+	firstAPIKeyRequest.RemoteAddr = "203.0.113.10:4567"
+	firstAPIKeyRequest.Header.Set("X-API-Key", "shared-key")
+	firstAPIKey := httptest.NewRecorder()
+	apiKeyHandler.ServeHTTP(firstAPIKey, firstAPIKeyRequest)
+	if firstAPIKey.Code != http.StatusNoContent {
+		t.Fatalf("first API key status = %d, want %d", firstAPIKey.Code, http.StatusNoContent)
+	}
+
+	secondAPIKeyRequest := newMiddlewareRequest("")
+	secondAPIKeyRequest.RemoteAddr = "198.51.100.20:4567"
+	secondAPIKeyRequest.Header.Set("X-API-Key", "shared-key")
+	secondAPIKey := httptest.NewRecorder()
+	apiKeyHandler.ServeHTTP(secondAPIKey, secondAPIKeyRequest)
+	if secondAPIKey.Code != http.StatusTooManyRequests {
+		t.Fatalf("second API key status = %d, want %d", secondAPIKey.Code, http.StatusTooManyRequests)
+	}
+
+	authenticatedRequest := newMiddlewareRequest("good-token")
+	authenticatedRequest.RemoteAddr = "198.51.100.20:4567"
+	authenticatedRequest.Header.Set("X-API-Key", "shared-key")
+	authenticated := httptest.NewRecorder()
+	authenticatedHandler.ServeHTTP(authenticated, authenticatedRequest)
+	if authenticated.Code != http.StatusNoContent {
+		t.Fatalf("authenticated status = %d, want %d; body: %s", authenticated.Code, http.StatusNoContent, authenticated.Body.String())
+	}
+}
