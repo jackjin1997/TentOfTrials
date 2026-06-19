@@ -16,7 +16,7 @@ class DiagnosticReportTests(unittest.TestCase):
             results,
             "abc123ef",
             logd_relpaths=["diagnostic/build-abc123ef.logd"],
-            password="secret",
+            password="secret",  # noqa: S106 - benign test fixture value
         )
 
         self.assertEqual(report["commit"], "abc123ef")
@@ -72,7 +72,7 @@ class DiagnosticReportTests(unittest.TestCase):
                 "diagnostic/build-feedface-part001.logd",
                 "diagnostic/build-feedface-part002.logd",
             ],
-            password="pw",
+            password="pw",  # noqa: S106 - benign test fixture value
             chunked=True,
         )
 
