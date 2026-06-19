@@ -569,7 +569,11 @@ def generate_logd(
                 "--include",
                 str(workspace),
                 "--max-file-size",
+<<<<<<< HEAD
                 "35840",
+=======
+                "10000",
+>>>>>>> 1462fe7 (ci: remove temporary diagnostic generator)
             ],
             cwd=str(ROOT),
             capture_output=True,
