@@ -185,7 +185,7 @@ def _normalize_arch(machine: str) -> Optional[str]:
 
 def _normalize_os() -> Optional[str]:
     system = platform.system().lower()
-    if system == "linux":
+    if system in {"linux", "android"}:
         return "linux"
     if system == "darwin":
         return "macos"
@@ -288,6 +288,8 @@ def build_module(
                     return False, time.time() - start, f"npm install failed:\n{install_result.stderr}"
             except subprocess.TimeoutExpired:
                 return False, time.time() - start, "npm install TIMEOUT (120s)"
+            except FileNotFoundError as e:
+                return False, time.time() - start, f"Command not found: {e}"
 
     if module.name == "engine":
 
