@@ -1,24 +1,34 @@
  ```diff
 --- a/tools/verify_backup.py
 +++ b/tools/verify_backup.py
-@@ -0,0 +1,264 @@
+@@ -0,0 +1,293 @@
 +#!/usr/bin/env python3
 +"""
 +Backup verification helper for TentOfTrials.
 +
-+Validates a restored database snapshot or exported metadata against
-+expected table names and row counts. Reports missing tables and
-+row-count mismatches with a non-zero exit code.
++Validates a restored database snapshot or exported metadata against expected
++table names and row counts. Reports missing tables and row-count mismatches
++with a non-zero exit code.
++
++Usage:
++    # Validate against a live database
++    python3 tools/verify_backup.py --expected expected.json --dsn "postgresql://user:pass@host/db"
++
++    # Dry-run / sample mode (no database credentials needed)
++    python3 tools/verify_backup.py --expected expected.json --dry-run
++
++    # Generate sample expected.json
++    python3 tools/verify_backup.py --generate-sample > sample_expected.json
 +"""
++
++from __future__ import annotations
 +
 +import argparse
 +import json
-+import os
-+import sqlite3
 +import sys
-+from dataclasses import dataclass
++from dataclasses import dataclass, field
 +from pathlib import Path
-+from typing import Optional
++from typing import Any, Optional
 +
 +
 +@dataclass
@@ -26,175 +36,144 @@
 +    """Result of verifying a single table."""
 +    table_name: str
 +    expected_count: int
-+    actual_count: int
-+    exists: bool
++    actual_count: int = -1
++    found: bool = False
 +
 +    @property
-+    def is_valid(self) -> bool:
-+        return self.exists and self.expected_count == self.actual_count
++    def count_matches(self) -> bool:
++        return self.found and self.actual_count == self.expected_count
++
++    def __str__(self) -> str:
++        status = "✓" if self.count_matches else "✗"
++        if not self.found:
++            return f"{status} {self.table_name}: MISSING (expected {self.expected_count} rows)"
++        return f"{status} {self.table_name}: {self.actual_count} rows (expected {self.expected_count})"
 +
 +
 +@dataclass
 +class VerificationReport:
-+    """Complete verification report."""
-+    results: list[VerificationResult]
-+    missing_tables: list[str]
-+    count_mismatches: list[VerificationResult]
++    """Overall verification report."""
++    results: list[VerificationResult] = field(default_factory=list)
++    errors: list[str] = field(default_factory=list)
++
++    @property
++    def missing_tables(self) -> list[VerificationResult]:
++        return [r for r in self.results if not r.found]
++
++    @property
++    def mismatched_counts(self) -> list[VerificationResult]:
++        return [r for r in self.results if r.found and not r.count_matches]
 +
 +    @property
 +    def is_valid(self) -> bool:
-+        return len(self.missing_tables) == 0 and len(self.count_mismatches) == 0
++        return not self.missing_tables and not self.mismatched_counts and not self.errors
 +
 +    def summary(self) -> str:
 +        lines = [
-+            "=" * 60,
-+            "BACKUP VERIFICATION REPORT",
-+            "=" * 60,
-+            f"Total tables checked: {len(self.results)}",
++            f"Tables checked: {len(self.results)}",
 +            f"Missing tables: {len(self.missing_tables)}",
-+            f"Row-count mismatches: {len(self.count_mismatches)}",
-+            f"Overall status: {'PASS' if self.is_valid else 'FAIL'}",
-+            "-" * 60,
++            f"Count mismatches: {len(self.mismatched_counts)}",
++            f"Errors: {len(self.errors)}",
 +        ]
-+
-+        if self.missing_tables:
-+            lines.append("MISSING TABLES:")
-+            for table in self.missing_tables:
-+                lines.append(f"  - {table}")
-+
-+        if self.count_mismatches:
-+            lines.append("ROW-COUNT MISMATCHES:")
-+            for result in self.count_mismatches:
-+                lines.append(
-+                    f"  - {result.table_name}: "
-+                    f"expected {result.expected_count}, got {result.actual_count}"
-+                )
-+
-+        lines.append("=" * 60)
++        if self.is_valid:
++            lines.append("Result: PASS")
++        else:
++            lines.append("Result: FAIL")
 +        return "\n".join(lines)
 +
 +
-+def load_expected_counts(path: Path) -> dict[str, int]:
++def load_expected(path: str) -> dict[str, int]:
 +    """Load expected table counts from a JSON file."""
 +    with open(path, "r", encoding="utf-8") as f:
 +        data = json.load(f)
-+    return data
++
++    # Support both flat {"table": count} and nested {"tables": {"table": count}} formats
++    if "tables" in data:
++        return {str(k): int(v) for k, v in data["tables"].items()}
++    return {str(k): int(v) for k, v in data.items()}
 +
 +
-+def verify_sqlite(db_path: Path, expected: dict[str, int]) -> VerificationReport:
-+    """Verify a SQLite database against expected table counts."""
-+    results: list[VerificationResult] = []
-+    missing_tables: list[str] = []
-+    count_mismatches: list[VerificationResult] = []
++def query_database_counts(dsn: str) -> dict[str, int]:
++    """Query a PostgreSQL database for table row counts."""
++    import psycopg2
 +
-+    conn = sqlite3.connect(str(db_path))
-+    cursor = conn.cursor()
++    counts: dict[str, int] = {}
++    with psycopg2.connect(dsn) as conn:
++        with conn.cursor() as cur:
++            # Get all user tables in public schema
++            cur.execute("""
++                SELECT tablename
++                FROM pg_tables
++                WHERE schemaname = 'public'
++                ORDER BY tablename
++            """)
++            tables = [row[0] for row in cur.fetchall()]
 +
-+    # Get list of actual tables
-+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
-+    actual_tables = {row[0] for row in cursor.fetchall()}
++            for table in tables:
++                cur.execute(f"SELECT COUNT(*) FROM {table}")
++                count = cur.fetchone()[0]
++                counts[table] = count
 +
-+    for table_name, expected_count in expected.items():
-+        if table_name not in actual_tables:
-+            result = VerificationResult(
-+                table_name=table_name,
-+                expected_count=expected_count,
-+                actual_count=0,
-+                exists=False,
-+            )
-+            results.append(result)
-+            missing_tables.append(table_name)
-+        else:
-+            cursor.execute(f"SELECT COUNT(*) FROM {table_name}")
-+            actual_count = cursor.fetchone()[0]
-+            result = VerificationResult(
-+                table_name=table_name,
-+                expected_count=expected_count,
-+                actual_count=actual_count,
-+                exists=True,
-+            )
-+            results.append(result)
-+            if actual_count != expected_count:
-+                count_mismatches.append(result)
-+
-+    conn.close()
-+
-+    return VerificationReport(
-+        results=results,
-+        missing_tables=missing_tables,
-+        count_mismatches=count_mismatches,
-+    )
++    return counts
 +
 +
-+def verify_json_snapshot(snapshot_path: Path, expected: dict[str, int]) -> VerificationReport:
-+    """Verify a JSON snapshot file against expected table counts."""
-+    with open(snapshot_path, "r", encoding="utf-8") as f:
-+        snapshot = json.load(f)
-+
-+    results: list[VerificationResult] = []
-+    missing_tables: list[str] = []
-+    count_mismatches: list[VerificationResult] = []
++def verify_backup(expected: dict[str, int], actual: dict[str, int]) -> VerificationReport:
++    """Verify actual database counts against expected counts."""
++    report = VerificationReport()
 +
 +    for table_name, expected_count in expected.items():
-+        if table_name not in snapshot:
-+            result = VerificationResult(
-+                table_name=table_name,
-+                expected_count=expected_count,
-+                actual_count=0,
-+                exists=False,
-+            )
-+            results.append(result)
-+            missing_tables.append(table_name)
++        result = VerificationResult(
++            table_name=table_name,
++            expected_count=expected_count,
++            actual_count=actual.get(table_name, -1),
++            found=table_name in actual,
++        )
++        report.results.append(result)
++
++    # Check for unexpected extra tables
++    for table_name in actual:
++        if table_name not in expected:
++            report.errors.append(f"Unexpected table found: {table_name} ({actual[table_name]} rows)")
++
++    return report
++
++
++def run_dry_run(expected: dict[str, int]) -> VerificationReport:
++    """Simulate a verification with synthetic data for testing the tool."""
++    # Simulate: first table matches, second is missing, third has wrong count
++    actual: dict[str, int] = {}
++    for i, (table, count) in enumerate(expected.items()):
++        if i == 1:
++            continue  # Skip second table to simulate missing
++        if i == 2:
++            actual[table] = count + 100  # Wrong count
 +        else:
-+            actual_count = snapshot[table_name]
-+            result = VerificationResult(
-+                table_name=table_name,
-+                expected_count=expected_count,
-+                actual_count=actual_count,
-+                exists=True,
-+            )
-+            results.append(result)
-+            if actual_count != expected_count:
-+                count_mismatches.append(result)
++            actual[table] = count
 +
-+    return VerificationReport(
-+        results=results,
-+        missing_tables=missing_tables,
-+        count_mismatches=count_mismatches,
-+    )
++    return verify_backup(expected, actual)
 +
 +
-+def generate_sample_input(output_path: Path) -> None:
-+    """Generate a sample expected-counts JSON file for operators to use as a template."""
-+    sample = {
-+        "users": 15000,
-+        "trades": 450000,
-+        "orders": 89000,
-+        "positions": 12000,
-+        "market_data": 5000000,
-+        "audit_log": 1000000,
++def generate_sample() -> dict[str, Any]:
++    """Generate a sample expected counts file."""
++    return {
++        "description": "Expected table row counts for backup verification",
++        "environment": "staging",
++        "tables": {
++            "users": 15420,
++            "accounts": 8750,
++            "transactions": 987654,
++            "orders": 345000,
++            "audit_log": 1200000,
++        }
 +    }
-+    with open(output_path, "w", encoding="utf-8") as f:
-+        json.dump(sample, f, indent=2)
-+    print(f"Sample input written to {output_path}")
 +
 +
 +def main() -> int:
 +    parser = argparse.ArgumentParser(
-+        description="Verify a restored database backup against expected table counts."
-+    )
-+    parser.add_argument(
-+        "--expected",
-+        type=Path,
-+        required=True,
-+        help="Path to JSON file with expected table names and row counts.",
-+    )
-+    parser.add_argument(
-+        "--db",
-+        type=Path,
-+        help="Path to SQLite database to verify.",
-+    )
-+    parser.add_argument(
-+        "--snapshot",
-+        type=Path,
-+        help
++        description="Verify backup restore integrity by checking table row counts.",
++        formatter_class=argparse.RawDescriptionHelpFormatter,
++        epilog="""
++Examples:
++  %(prog)s --expected counts.json --dsn "postgresql://user:pass@localhost/db"
++  %(prog)s --expected counts.json --dry-run
++  %(prog)s --
