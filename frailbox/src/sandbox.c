@@ -8,11 +8,15 @@
 #include <time.h>
 #include <signal.h>
 #include <sys/types.h>
+#ifdef __linux__
 #include <sys/prctl.h>
+#endif
 #include <sys/resource.h>
 
+#ifdef __linux__
 #ifndef PR_SET_NO_NEW_PRIVS
 #define PR_SET_NO_NEW_PRIVS 38
+#endif
 #endif
 
 sandbox_t *sandbox_create(const sandbox_config_t *config) {
@@ -42,10 +46,12 @@ int sandbox_apply(sandbox_t *sandbox) {
         return 0;
     }
 
+#ifdef __linux__
     if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) < 0) {
         fprintf(stderr, "warning: PR_SET_NO_NEW_PRIVS failed: %s\n",
                 strerror(errno));
     }
+#endif
 
     if (sandbox->config.memory_limit_bytes > 0) {
         struct rlimit rl = {

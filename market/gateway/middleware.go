@@ -38,12 +38,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
-	"fmt"
 	"log"
-	"net"
 	"net/http"
 	"runtime/debug"
 	"strconv"
@@ -213,7 +209,7 @@ func AuthMiddleware(next http.Handler) http.Handler {
 		}
 
 		// Validate token and extract user info
-		userID, sessionID, err := validateToken(token)
+		userID, sessionID, err := validateAuthToken(token)
 		if err != nil {
 			writeJSON(w, http.StatusUnauthorized, map[string]interface{}{
 				"error":   "invalid_token",
@@ -230,7 +226,9 @@ func AuthMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// RateLimitMiddleware applies rate limiting based on client IP or API key.
+var validateAuthToken = validateToken
+
+// RateLimitMiddleware applies rate limiting based on authenticated user or client IP.
 // Uses a token bucket algorithm with configurable rate and burst.
 func RateLimitMiddleware(ratePerSecond float64, burst int) func(http.Handler) http.Handler {
 	var mu sync.Mutex
@@ -251,10 +249,7 @@ func RateLimitMiddleware(ratePerSecond float64, burst int) func(http.Handler) ht
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			key := getClientIP(r)
-			if apiKey := r.Header.Get("X-API-Key"); apiKey != "" {
-				key = apiKey
-			}
+			key := rateLimitKey(r)
 
 			mu.Lock()
 			bucket, exists := clients[key]
@@ -277,8 +272,8 @@ func RateLimitMiddleware(ratePerSecond float64, burst int) func(http.Handler) ht
 
 			if !allowed {
 				writeJSON(w, http.StatusTooManyRequests, map[string]interface{}{
-					"error":   "rate_limit_exceeded",
-					"message": "Too many requests. Please slow down.",
+					"error":       "rate_limit_exceeded",
+					"message":     "Too many requests. Please slow down.",
 					"retry_after": reset - time.Now().Unix(),
 				})
 				return
@@ -287,6 +282,13 @@ func RateLimitMiddleware(ratePerSecond float64, burst int) func(http.Handler) ht
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+func rateLimitKey(r *http.Request) string {
+	if userID, ok := r.Context().Value(ContextKeyUserID).(string); ok && userID != "" {
+		return "user:" + userID
+	}
+	return "ip:" + getClientIP(r)
 }
 
 type tokenBucket struct {
@@ -377,31 +379,10 @@ func CompressMiddleware(next http.Handler) http.Handler {
 // HELPERS
 // ---------------------------------------------------------------------------
 
-func getClientIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		parts := strings.Split(xff, ",")
-		return strings.TrimSpace(parts[0])
-	}
-	if xri := r.Header.Get("X-Real-IP"); xri != "" {
-		return xri
-	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
-}
-
 func generateUUID() string {
 	b := make([]byte, 16)
 	rand.Read(b)
 	return hex.EncodeToString(b)
-}
-
-func generateAPIKey() string {
-	b := make([]byte, 32)
-	rand.Read(b)
-	return base64.URLEncoding.EncodeToString(b)
 }
 
 func extractToken(r *http.Request) string {
@@ -426,10 +407,4 @@ func validateToken(token string) (string, string, error) {
 	//   5. Extract user ID and session ID
 	//   6. Return them
 	return "user_stub", "session_stub", nil
-}
-
-func writeJSON(w http.ResponseWriter, status int, data interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(data)
 }
