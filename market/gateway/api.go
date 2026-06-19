@@ -39,7 +39,6 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -49,7 +48,6 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -69,11 +67,11 @@ const (
 	APIVersionV3 = "3.0"
 
 	// Default HTTP server settings
-	DefaultReadTimeout       = 30 * time.Second
-	DefaultWriteTimeout      = 60 * time.Second
-	DefaultIdleTimeout       = 120 * time.Second
-	DefaultShutdownTimeout   = 30 * time.Second
-	DefaultMaxHeaderBytes    = 1 << 20
+	DefaultReadTimeout     = 30 * time.Second
+	DefaultWriteTimeout    = 60 * time.Second
+	DefaultIdleTimeout     = 120 * time.Second
+	DefaultShutdownTimeout = 30 * time.Second
+	DefaultMaxHeaderBytes  = 1 << 20
 
 	// Rate limiting defaults
 	DefaultRateLimitPerSecond = 10
@@ -81,13 +79,13 @@ const (
 	DefaultRateLimitWindow    = time.Second
 
 	// WebSocket defaults
-	DefaultWSReadBufferSize  = 4096
-	DefaultWSWriteBufferSize = 4096
+	DefaultWSReadBufferSize   = 4096
+	DefaultWSWriteBufferSize  = 4096
 	DefaultWSHandshakeTimeout = 10 * time.Second
-	DefaultWSPingInterval    = 30 * time.Second
-	DefaultWSPongWait        = 60 * time.Second
-	DefaultWSMaxMessageSize  = 65536
-	DefaultWSMaxConnections  = 1000
+	DefaultWSPingInterval     = 30 * time.Second
+	DefaultWSPongWait         = 60 * time.Second
+	DefaultWSMaxMessageSize   = 65536
+	DefaultWSMaxConnections   = 1000
 
 	// Request ID header
 	RequestIDHeader = "X-Request-ID"
@@ -112,10 +110,10 @@ const (
 // ---------------------------------------------------------------------------
 
 type APIError struct {
-	Code       int    `json:"code"`
-	Message    string `json:"message"`
-	RequestID  string `json:"request_id,omitempty"`
-	StatusCode int    `json:"-"`
+	Code       int         `json:"code"`
+	Message    string      `json:"message"`
+	RequestID  string      `json:"request_id,omitempty"`
+	StatusCode int         `json:"-"`
 	Details    interface{} `json:"details,omitempty"`
 }
 
@@ -124,14 +122,14 @@ func (e *APIError) Error() string {
 }
 
 var (
-	ErrInvalidRequest  = &APIError{Code: 4001, Message: "Invalid request", StatusCode: 400}
-	ErrUnauthorized    = &APIError{Code: 4002, Message: "Unauthorized", StatusCode: 401}
-	ErrForbidden       = &APIError{Code: 4003, Message: "Forbidden", StatusCode: 403}
-	ErrNotFound        = &APIError{Code: 4004, Message: "Resource not found", StatusCode: 404}
-	ErrRateLimited     = &APIError{Code: 4029, Message: "Rate limit exceeded", StatusCode: 429}
-	ErrInternal        = &APIError{Code: 5001, Message: "Internal server error", StatusCode: 500}
-	ErrServiceUnavail  = &APIError{Code: 5003, Message: "Service unavailable", StatusCode: 503}
-	ErrGatewayTimeout  = &APIError{Code: 5004, Message: "Gateway timeout", StatusCode: 504}
+	ErrInvalidRequest = &APIError{Code: 4001, Message: "Invalid request", StatusCode: 400}
+	ErrUnauthorized   = &APIError{Code: 4002, Message: "Unauthorized", StatusCode: 401}
+	ErrForbidden      = &APIError{Code: 4003, Message: "Forbidden", StatusCode: 403}
+	ErrNotFound       = &APIError{Code: 4004, Message: "Resource not found", StatusCode: 404}
+	ErrRateLimited    = &APIError{Code: 4029, Message: "Rate limit exceeded", StatusCode: 429}
+	ErrInternal       = &APIError{Code: 5001, Message: "Internal server error", StatusCode: 500}
+	ErrServiceUnavail = &APIError{Code: 5003, Message: "Service unavailable", StatusCode: 503}
+	ErrGatewayTimeout = &APIError{Code: 5004, Message: "Gateway timeout", StatusCode: 504}
 )
 
 // ---------------------------------------------------------------------------
@@ -139,48 +137,48 @@ var (
 // ---------------------------------------------------------------------------
 
 type GatewayConfig struct {
-	Host             string        `yaml:"host"`
-	Port             int           `yaml:"port"`
-	ReadTimeout      time.Duration `yaml:"read_timeout"`
-	WriteTimeout     time.Duration `yaml:"write_timeout"`
-	IdleTimeout      time.Duration `yaml:"idle_timeout"`
-	ShutdownTimeout  time.Duration `yaml:"shutdown_timeout"`
-	MaxHeaderBytes   int           `yaml:"max_header_bytes"`
+	Host            string        `yaml:"host"`
+	Port            int           `yaml:"port"`
+	ReadTimeout     time.Duration `yaml:"read_timeout"`
+	WriteTimeout    time.Duration `yaml:"write_timeout"`
+	IdleTimeout     time.Duration `yaml:"idle_timeout"`
+	ShutdownTimeout time.Duration `yaml:"shutdown_timeout"`
+	MaxHeaderBytes  int           `yaml:"max_header_bytes"`
 
-	RateLimitPerSecond float64       `yaml:"rate_limit_per_second"`
-	RateLimitBurst     int           `yaml:"rate_limit_burst"`
-	RateLimitEnabled   bool          `yaml:"rate_limit_enabled"`
+	RateLimitPerSecond float64 `yaml:"rate_limit_per_second"`
+	RateLimitBurst     int     `yaml:"rate_limit_burst"`
+	RateLimitEnabled   bool    `yaml:"rate_limit_enabled"`
 
-	WSEnabled           bool          `yaml:"ws_enabled"`
-	WSMaxConnections    int           `yaml:"ws_max_connections"`
-	WSPingInterval      time.Duration `yaml:"ws_ping_interval"`
-	WSPongWait          time.Duration `yaml:"ws_pong_wait"`
+	WSEnabled        bool          `yaml:"ws_enabled"`
+	WSMaxConnections int           `yaml:"ws_max_connections"`
+	WSPingInterval   time.Duration `yaml:"ws_ping_interval"`
+	WSPongWait       time.Duration `yaml:"ws_pong_wait"`
 
-	CORSOrigins        []string      `yaml:"cors_origins"`
-	CORSMaxAge         time.Duration `yaml:"cors_max_age"`
+	CORSOrigins []string      `yaml:"cors_origins"`
+	CORSMaxAge  time.Duration `yaml:"cors_max_age"`
 
-	TLSEnabled         bool          `yaml:"tls_enabled"`
-	TLSCertPath        string        `yaml:"tls_cert_path"`
-	TLSKeyPath         string        `yaml:"tls_key_path"`
+	TLSEnabled  bool   `yaml:"tls_enabled"`
+	TLSCertPath string `yaml:"tls_cert_path"`
+	TLSKeyPath  string `yaml:"tls_key_path"`
 
-	LogRequests        bool          `yaml:"log_requests"`
-	LogHeaders         []string      `yaml:"log_headers"`
-	EnableMetrics      bool          `yaml:"enable_metrics"`
-	EnableProfiling    bool          `yaml:"enable_profiling"`
+	LogRequests     bool     `yaml:"log_requests"`
+	LogHeaders      []string `yaml:"log_headers"`
+	EnableMetrics   bool     `yaml:"enable_metrics"`
+	EnableProfiling bool     `yaml:"enable_profiling"`
 
-	TrustedProxies     []string      `yaml:"trusted_proxies"`
-	RealIPHeader       string        `yaml:"real_ip_header"`
+	TrustedProxies []string `yaml:"trusted_proxies"`
+	RealIPHeader   string   `yaml:"real_ip_header"`
 }
 
 func DefaultGatewayConfig() GatewayConfig {
 	return GatewayConfig{
-		Host:             "0.0.0.0",
-		Port:             8080,
-		ReadTimeout:      DefaultReadTimeout,
-		WriteTimeout:     DefaultWriteTimeout,
-		IdleTimeout:      DefaultIdleTimeout,
-		ShutdownTimeout:  DefaultShutdownTimeout,
-		MaxHeaderBytes:   DefaultMaxHeaderBytes,
+		Host:               "0.0.0.0",
+		Port:               8080,
+		ReadTimeout:        DefaultReadTimeout,
+		WriteTimeout:       DefaultWriteTimeout,
+		IdleTimeout:        DefaultIdleTimeout,
+		ShutdownTimeout:    DefaultShutdownTimeout,
+		MaxHeaderBytes:     DefaultMaxHeaderBytes,
 		RateLimitPerSecond: DefaultRateLimitPerSecond,
 		RateLimitBurst:     DefaultRateLimitBurst,
 		RateLimitEnabled:   true,
@@ -200,18 +198,18 @@ func DefaultGatewayConfig() GatewayConfig {
 // ---------------------------------------------------------------------------
 
 type Gateway struct {
-	config    GatewayConfig
-	server    *http.Server
-	mux       *http.ServeMux
+	config      GatewayConfig
+	server      *http.Server
+	mux         *http.ServeMux
 	rateLimiter *RateLimiter
-	wsManager *WSConnectionManager
-	metrics   *GatewayMetrics
-	logger    *log.Logger
-	startedAt time.Time
-	health    atomic.Value
-	mu        sync.RWMutex
-	routes    []Route
-	middleware []MiddlewareFunc
+	wsManager   *WSConnectionManager
+	metrics     *GatewayMetrics
+	logger      *log.Logger
+	startedAt   time.Time
+	health      atomic.Value
+	mu          sync.RWMutex
+	routes      []Route
+	middleware  []MiddlewareFunc
 }
 
 type Route struct {
@@ -229,19 +227,19 @@ type Route struct {
 type MiddlewareFunc func(http.Handler) http.Handler
 
 type GatewayMetrics struct {
-	RequestsTotal      int64 `json:"requests_total"`
-	RequestsActive     int64 `json:"requests_active"`
-	RequestsFailed     int64 `json:"requests_failed"`
-	RequestsTimedOut   int64 `json:"requests_timed_out"`
-	RequestsRateLimited int64 `json:"requests_rate_limited"`
-	WSConnectionsTotal int64 `json:"ws_connections_total"`
-	WSConnectionsActive int64 `json:"ws_connections_active"`
+	RequestsTotal        int64 `json:"requests_total"`
+	RequestsActive       int64 `json:"requests_active"`
+	RequestsFailed       int64 `json:"requests_failed"`
+	RequestsTimedOut     int64 `json:"requests_timed_out"`
+	RequestsRateLimited  int64 `json:"requests_rate_limited"`
+	WSConnectionsTotal   int64 `json:"ws_connections_total"`
+	WSConnectionsActive  int64 `json:"ws_connections_active"`
 	WSConnectionsDropped int64 `json:"ws_connections_dropped"`
-	BytesSent          int64 `json:"bytes_sent"`
-	BytesReceived      int64 `json:"bytes_received"`
-	AverageLatencyMs   int64 `json:"average_latency_ms"`
-	PeakLatencyMs      int64 `json:"peak_latency_ms"`
-	mu                 sync.Mutex
+	BytesSent            int64 `json:"bytes_sent"`
+	BytesReceived        int64 `json:"bytes_received"`
+	AverageLatencyMs     int64 `json:"average_latency_ms"`
+	PeakLatencyMs        int64 `json:"peak_latency_ms"`
+	mu                   sync.Mutex
 }
 
 func NewGateway(config GatewayConfig) *Gateway {
@@ -681,10 +679,10 @@ func (g *Gateway) handleWebSocket() http.HandlerFunc {
 // ---------------------------------------------------------------------------
 
 type RateLimiter struct {
-	mu       sync.Mutex
-	clients  map[string]*clientRateLimit
-	rate     float64
-	burst    int
+	mu      sync.Mutex
+	clients map[string]*clientRateLimit
+	rate    float64
+	burst   int
 }
 
 type clientRateLimit struct {
@@ -736,24 +734,24 @@ func (rl *RateLimiter) Allow(key string) (bool, int, int64) {
 // ---------------------------------------------------------------------------
 
 type WSConnectionManager struct {
-	config     GatewayConfig
+	config      GatewayConfig
 	connections sync.Map
-	total      int64
-	active     int64
-	dropped    int64
-	mu         sync.Mutex
+	total       int64
+	active      int64
+	dropped     int64
+	mu          sync.Mutex
 }
 
 type WSConnection struct {
-	ID        string
-	UserID    string
-	Conn      interface{}
-	Connected time.Time
-	LastPing  time.Time
-	LastPong  time.Time
-	RemoteAddr string
-	UserAgent string
-	Protocol  string
+	ID            string
+	UserID        string
+	Conn          interface{}
+	Connected     time.Time
+	LastPing      time.Time
+	LastPong      time.Time
+	RemoteAddr    string
+	UserAgent     string
+	Protocol      string
 	Subscriptions []string
 }
 

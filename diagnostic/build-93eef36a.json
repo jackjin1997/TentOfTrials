@@ -1,0 +1,23 @@
+{
+  "generated_at": "2026-06-19T08:08:50.385537+00:00",
+  "commit": "93eef36a",
+  "diagnostic_logd": null,
+  "diagnostic_logd_error": "5fad1614969258cac1d6",
+  "chunked": false,
+  "chunk_size_bytes": null,
+  "password": null,
+  "decrypt_command": null,
+  "total_modules": 1,
+  "passed": 1,
+  "failed": 0,
+  "modules": [
+    {
+      "name": "market",
+      "status": "PASS",
+      "elapsed_seconds": 0.629,
+      "artifact": "C:\\Users\\TuanVQ\\.config\\superpowers\\worktrees\\TentOfTrials\\issue-2-gateway-auth-tests\\market\\market",
+      "output": ""
+    }
+  ],
+  "pr_note": "Encrypted diagnostic logd artifact was not created; include this JSON report showing why. The encrypted .logd is the required diagnostic content for PR review; this JSON file is metadata. Maintainers may ask you to remove these diagnostic artifacts before merging."
+}
