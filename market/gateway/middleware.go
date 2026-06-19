@@ -378,7 +378,10 @@ func CompressMiddleware(next http.Handler) http.Handler {
 
 func generateUUID() string {
 	b := make([]byte, 16)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		log.Printf("failed to generate random request ID: %v", err)
+		return strconv.FormatInt(time.Now().UnixNano(), 16)
+	}
 	return hex.EncodeToString(b)
 }
 
