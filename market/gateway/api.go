@@ -39,7 +39,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
+
 	"fmt"
 	"io"
 	"log"
@@ -49,7 +49,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
-	"sort"
+
 	"strconv"
 	"strings"
 	"sync"
