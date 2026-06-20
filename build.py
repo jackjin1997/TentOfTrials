@@ -184,6 +184,10 @@ def _normalize_arch(machine: str) -> Optional[str]:
 
 
 def _normalize_os() -> Optional[str]:
+    """
+    Normalize platform system name to a standard string.
+    Maps 'android' and 'linux' systems to 'linux'.
+    """
     system = platform.system().lower()
     if system in {"linux", "android"}:
         return "linux"
@@ -262,6 +266,10 @@ def build_module(
     release: bool = False,
     verbose: bool = False,
 ) -> tuple[bool, float, str]:
+    """
+    Build a single project module by running its compile/build commands.
+    Supports special handling for Node.js/frontend install step under Android.
+    """
 
     print(f"\n  {color('▸', Colors.CYAN)} Building {color(module.name, Colors.BOLD)} ({module.language})...")
 

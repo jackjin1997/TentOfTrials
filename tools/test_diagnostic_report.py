@@ -1,3 +1,7 @@
+"""
+Unit tests for build diagnostic metadata reports.
+"""
+
 import sys
 import os
 import unittest
@@ -7,7 +11,13 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import build
 
 class TestDiagnosticReport(unittest.TestCase):
+    """
+    Test suite for build diagnostic report generation functionality.
+    """
     def test_successful_report_metadata(self):
+        """
+        Verify metadata structure and calculations for a successful diagnostic report.
+        """
         results = [
             ("backend", True, 1.25, "Cargo build complete", "target/release/backend"),
             ("frontend", False, 0.45, "npm install failed", None)
@@ -39,6 +49,9 @@ class TestDiagnosticReport(unittest.TestCase):
         self.assertEqual(report["modules"][1]["status"], "FAIL")
 
     def test_logd_generation_failure_metadata(self):
+        """
+        Verify metadata structure when logd generation fails.
+        """
         results = [
             ("backend", True, 0.5, "Success", "bin/backend")
         ]
@@ -61,6 +74,9 @@ class TestDiagnosticReport(unittest.TestCase):
         self.assertIsNone(report["decrypt_command"])
 
     def test_chunked_logd_references(self):
+        """
+        Verify metadata fields when multiple chunked logd references are returned.
+        """
         results = [
             ("backend", True, 0.5, "Success", "bin/backend")
         ]

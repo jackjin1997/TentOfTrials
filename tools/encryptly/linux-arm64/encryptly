@@ -1,10 +1,18 @@
 #!/data/data/com.termux/files/usr/bin/python3
+"""
+Mock encryptly wrapper script for Android/Termux environments.
+Produces zip files and generates passwords for diagnostic tracking.
+"""
+
 import sys
 import os
 import zipfile
 from pathlib import Path
 
 def main():
+    """
+    Main entry point parsing pack/unpack commands and handling execution.
+    """
     if len(sys.argv) < 2:
         print("Usage: encryptly pack/unpack ...")
         sys.exit(1)
@@ -34,7 +42,11 @@ def main():
                     arcname = file_path.relative_to(include_dir)
                     zipf.write(file_path, arcname)
                     
-        print(f"Packed {include_dir} into {logd_path}")
+        print(f"Packed {include_dir} into {logd_path}", file=sys.stderr)
+        # Generate and print a cryptographic token (20-character hex string)
+        import secrets
+        pw = secrets.token_hex(10)
+        print(pw)
         sys.exit(0)
         
     elif cmd == "unpack":

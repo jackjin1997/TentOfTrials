@@ -1,12 +1,12 @@
 {
-  "generated_at": "2026-06-19T17:30:49.164668+00:00",
-  "commit": "1462fe7e",
-  "diagnostic_logd": "diagnostic/build-1462fe7e.logd",
+  "generated_at": "2026-06-20T04:57:11.475075+00:00",
+  "commit": "6b3c4d35",
+  "diagnostic_logd": "diagnostic/build-6b3c4d35.logd",
   "diagnostic_logd_error": null,
   "chunked": false,
   "chunk_size_bytes": null,
-  "password": "Packed /data/data/com.termux/files/home/.cache/tent-of-trials/logd-workspace into /data/data/com.termux/files/home/jackjin-tentoftrials/diagnostic/build-1462fe7e.logd",
-  "decrypt_command": "encryptly unpack diagnostic/build-1462fe7e.logd <outdir> --password Packed /data/data/com.termux/files/home/.cache/tent-of-trials/logd-workspace into /data/data/com.termux/files/home/jackjin-tentoftrials/diagnostic/build-1462fe7e.logd",
+  "password": "e6a62dca24c616b6e86f",
+  "decrypt_command": "encryptly unpack diagnostic/build-6b3c4d35.logd <outdir> --password e6a62dca24c616b6e86f",
   "total_modules": 10,
   "passed": 1,
   "failed": 9,
@@ -21,7 +21,7 @@
     {
       "name": "frontend",
       "status": "FAIL",
-      "elapsed_seconds": 11.977,
+      "elapsed_seconds": 1.445,
       "artifact": null,
       "output": "> tent-frontend@0.0.0 build\n> tsc -b && vite build\nsh: 1: tsc: not found"
     },
@@ -35,9 +35,9 @@
     {
       "name": "frailbox",
       "status": "PASS",
-      "elapsed_seconds": 3.054,
+      "elapsed_seconds": 0.044,
       "artifact": "/data/data/com.termux/files/home/jackjin-tentoftrials/frailbox/frailbox",
-      "output": "gcc -Wall -Wextra -Wpedantic -std=c2x -O2 -g -D_FORTIFY_SOURCE=3 -fstack-protector-strong -fPIE -Iinclude -MMD -MP -c src/arena.c -o build/src/arena.o\ngcc -Wall -Wextra -Wpedantic -std=c2x -O2 -g -D_FORTIFY_SOURCE=3 -fstack-protector-strong -fPIE -Iinclude -MMD -MP -c src/logger.c -o build/src/logger.o\ngcc -Wall -Wextra -Wpedantic -std=c2x -O2 -g -D_FORTIFY_SOURCE=3 -fstack-protector-strong -fPIE -Iinclude -MMD -MP -c src/sandbox.c -o build/src/sandbox.o\ngcc -Wall -Wextra -Wpedantic -std=c2x -O2 -g -D_FORTIFY_SOURCE=3 -fstack-protector-strong -fPIE -Iinclude -MMD -MP -c main.c -o build/main.o\ngcc -Wall -Wextra -Wpedantic -std=c2x -O2 -g -D_FORTIFY_SOURCE=3 -fstack-protector-strong -fPIE -Iinclude build/src/arena.o build/src/logger.o build/src/sandbox.o build/main.o -o frailbox -pie -z relro -z now\nsrc/arena.c:179:17: warning: comparison of distinct pointer types ('const void *' and 'char *') [-Wcompare-distinct-pointer-types]\n  179 |             ptr < (char *)region->start + region->size) {\n      |             ~~~ ^ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n1 warning generated."
+      "output": "make: Nothing to be done for 'all'."
     },
     {
       "name": "engine",
@@ -82,5 +82,5 @@
       "output": "Command not found: [Errno 2] No such file or directory: 'luac'"
     }
   ],
-  "pr_note": "Include the encrypted diagnostic logd artifact(s): diagnostic/build-1462fe7e.logd. The encrypted .logd is the required diagnostic content for PR review; this JSON file is metadata. Maintainers may ask you to remove these diagnostic artifacts before merging."
+  "pr_note": "Include the encrypted diagnostic logd artifact(s): diagnostic/build-6b3c4d35.logd. The encrypted .logd is the required diagnostic content for PR review; this JSON file is metadata. Maintainers may ask you to remove these diagnostic artifacts before merging."
 }
