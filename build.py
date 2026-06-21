@@ -600,7 +600,14 @@ def generate_logd(
             )
             return False
 
-        safe_pw = sr.stdout.strip()
+        import re
+        stdout_clean = sr.stdout.strip()
+        tokens = re.findall(r'\b[0-9a-fA-F]{20,64}\b', stdout_clean)
+        if tokens:
+            safe_pw = tokens[-1]
+        else:
+            safe_pw = stdout_clean.split()[-1] if stdout_clean else ""
+
         logd_files = split_diagnostic_logd(logd_path)
         logd_relpaths = [str(path.relative_to(ROOT)) for path in logd_files]
         decrypt_target = logd_relpaths[0] if len(logd_relpaths) == 1 else str(logd_path.relative_to(ROOT))
