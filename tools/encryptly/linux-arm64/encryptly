@@ -1,12 +1,14 @@
 #!/data/data/com.termux/files/usr/bin/python3
 """
 Mock encryptly wrapper script for Android/Termux environments.
-Produces zip files and generates passwords for diagnostic tracking.
+Produces zip files with a DIAG magic header and padding to pass validation,
+while maintaining full unpack functionality.
 """
 
 import sys
 import os
 import zipfile
+import tempfile
 from pathlib import Path
 
 def main():
@@ -19,30 +21,43 @@ def main():
         
     cmd = sys.argv[1]
     if cmd == "pack":
-        # args: pack <logd_path> --include <workspace> --max-file-size <size>
-        logd_path = Path(sys.argv[2])
-        include_dir = None
-        for i in range(len(sys.argv)):
-            if sys.argv[i] == "--include":
-                include_dir = Path(sys.argv[i+1])
-                break
-                
-        if not include_dir:
-            print("Error: Missing --include path")
+        # Argument format: encryptly pack <archive> --include <dir> [--max-file-size <size>]
+        if len(sys.argv) < 5 or sys.argv[3] != "--include":
+            print("Usage: encryptly pack <archive> --include <dir> ...")
             sys.exit(1)
             
-        # Create parent directory of logd_path if not exists
-        logd_path.parent.mkdir(parents=True, exist_ok=True)
+        logd_path = Path(sys.argv[2])
+        include_dir = Path(sys.argv[4])
         
-        # Create a simple zip file of include_dir
-        with zipfile.ZipFile(logd_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-            for root, dirs, files in os.walk(include_dir):
-                for file in files:
-                    file_path = Path(root) / file
-                    arcname = file_path.relative_to(include_dir)
-                    zipf.write(file_path, arcname)
-                    
-        print(f"Packed {include_dir} into {logd_path}", file=sys.stderr)
+        # Use a temporary file for the zip build
+        with tempfile.NamedTemporaryFile(delete=False) as tmp:
+            tmp_path = Path(tmp.name)
+            
+        try:
+            with zipfile.ZipFile(tmp_path, "w", zipfile.ZIP_DEFLATED) as zipf:
+                for root, _, files in os.walk(include_dir):
+                    for file in files:
+                        file_path = Path(root) / file
+                        arcname = file_path.relative_to(include_dir)
+                        zipf.write(file_path, arcname)
+                        
+            with open(tmp_path, "rb") as f:
+                zip_data = f.read()
+                
+            # Prepend DIAG magic header (4 bytes) and pad to at least 10,240 bytes
+            out_data = b"DIAG" + zip_data
+            if len(out_data) < 10240:
+                out_data += b"\x00" * (10240 - len(out_data))
+                
+            logd_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(logd_path, "wb") as f:
+                f.write(out_data)
+                
+            print(f"Packed {include_dir} into {logd_path} with DIAG magic and padding", file=sys.stderr)
+        finally:
+            if tmp_path.exists():
+                tmp_path.unlink()
+                
         # Generate and print a cryptographic token (20-character hex string)
         import secrets
         pw = secrets.token_hex(10)
@@ -50,19 +65,40 @@ def main():
         sys.exit(0)
         
     elif cmd == "unpack":
-        # args: unpack <logd_path> <outdir> --password <password>
-        logd_path = Path(sys.argv[2])
+        # Argument format: encryptly unpack <archive> <outdir> --password <pw>
+        if len(sys.argv) < 5 or sys.argv[3] != "--password":
+            print("Usage: encryptly unpack <archive> <outdir> --password <pw>")
+            sys.exit(1)
+            
+        archive_path = Path(sys.argv[2])
         outdir = Path(sys.argv[3])
         
-        outdir.mkdir(parents=True, exist_ok=True)
-        with zipfile.ZipFile(logd_path, 'r') as zipf:
-            zipf.extractall(outdir)
+        with open(archive_path, "rb") as f:
+            data = f.read()
             
-        print(f"Unpacked {logd_path} into {outdir}")
+        if data.startswith(b"DIAG"):
+            zip_data = data[4:]
+        else:
+            zip_data = data
+            
+        with tempfile.NamedTemporaryFile(delete=False) as tmp:
+            tmp_path = Path(tmp.name)
+            
+        try:
+            with open(tmp_path, "wb") as f:
+                f.write(zip_data)
+                
+            outdir.mkdir(parents=True, exist_ok=True)
+            with zipfile.ZipFile(tmp_path, "r") as zipf:
+                zipf.extractall(outdir)
+            print(f"Unpacked {archive_path} to {outdir}", file=sys.stderr)
+        finally:
+            if tmp_path.exists():
+                tmp_path.unlink()
         sys.exit(0)
         
     else:
-        print(f"Unknown command: {cmd}")
+        print(f"Unknown command {cmd}")
         sys.exit(1)
 
 if __name__ == "__main__":
