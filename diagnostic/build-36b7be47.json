@@ -1,12 +1,12 @@
 {
-  "generated_at": "2026-06-20T11:57:26.837923+00:00",
-  "commit": "1462fe7e",
-  "diagnostic_logd": "diagnostic/build-1462fe7e.logd",
+  "generated_at": "2026-06-21T02:21:28.599525+00:00",
+  "commit": "36b7be47",
+  "diagnostic_logd": "diagnostic/build-36b7be47.logd",
   "diagnostic_logd_error": null,
   "chunked": false,
   "chunk_size_bytes": null,
-  "password": "583fedf2339d81545f4d",
-  "decrypt_command": "encryptly unpack diagnostic/build-1462fe7e.logd <outdir> --password 583fedf2339d81545f4d",
+  "password": "68086257577bc9c0f93d",
+  "decrypt_command": "encryptly unpack diagnostic/build-36b7be47.logd <outdir> --password 68086257577bc9c0f93d",
   "total_modules": 10,
   "passed": 2,
   "failed": 8,
@@ -21,21 +21,21 @@
     {
       "name": "frontend",
       "status": "FAIL",
-      "elapsed_seconds": 1.53,
+      "elapsed_seconds": 0.922,
       "artifact": null,
       "output": "> tent-frontend@0.0.0 build\n> tsc -b && vite build\nsh: 1: tsc: not found"
     },
     {
       "name": "market",
       "status": "PASS",
-      "elapsed_seconds": 1.77,
+      "elapsed_seconds": 3.433,
       "artifact": "/data/data/com.termux/files/home/jackjin-tentoftrials/market/market",
       "output": ""
     },
     {
       "name": "frailbox",
       "status": "PASS",
-      "elapsed_seconds": 0.039,
+      "elapsed_seconds": 0.04,
       "artifact": "/data/data/com.termux/files/home/jackjin-tentoftrials/frailbox/frailbox",
       "output": "make: Nothing to be done for 'all'."
     },
@@ -82,5 +82,5 @@
       "output": "Command not found: [Errno 2] No such file or directory: 'luac'"
     }
   ],
-  "pr_note": "Include the encrypted diagnostic logd artifact(s): diagnostic/build-1462fe7e.logd. The encrypted .logd is the required diagnostic content for PR review; this JSON file is metadata. Maintainers may ask you to remove these diagnostic artifacts before merging."
+  "pr_note": "Include the encrypted diagnostic logd artifact(s): diagnostic/build-36b7be47.logd. The encrypted .logd is the required diagnostic content for PR review; this JSON file is metadata. Maintainers may ask you to remove these diagnostic artifacts before merging."
 }
