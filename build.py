@@ -184,6 +184,10 @@ def _normalize_arch(machine: str) -> Optional[str]:
 
 
 def _normalize_os() -> Optional[str]:
+    """
+    Normalize platform system name to a standard string.
+    Maps 'android' and 'linux' systems to 'linux'.
+    """
     system = platform.system().lower()
     if system in {"linux", "android"}:
         return "linux"
@@ -262,6 +266,10 @@ def build_module(
     release: bool = False,
     verbose: bool = False,
 ) -> tuple[bool, float, str]:
+    """
+    Build a single project module by running its compile/build commands.
+    Supports special handling for Node.js/frontend install step under Android.
+    """
 
     print(f"\n  {color('▸', Colors.CYAN)} Building {color(module.name, Colors.BOLD)} ({module.language})...")
 
@@ -288,6 +296,8 @@ def build_module(
                     return False, time.time() - start, f"npm install failed:\n{install_result.stderr}"
             except subprocess.TimeoutExpired:
                 return False, time.time() - start, "npm install TIMEOUT (120s)"
+            except FileNotFoundError as e:
+                return False, time.time() - start, f"Command not found: {e}"
 
     if module.name == "engine":
 
@@ -590,7 +600,14 @@ def generate_logd(
             )
             return False
 
-        safe_pw = sr.stdout.strip()
+        import re
+        stdout_clean = sr.stdout.strip()
+        tokens = re.findall(r'\b[0-9a-fA-F]{20,64}\b', stdout_clean)
+        if tokens:
+            safe_pw = tokens[-1]
+        else:
+            safe_pw = stdout_clean.split()[-1] if stdout_clean else ""
+
         logd_files = split_diagnostic_logd(logd_path)
         logd_relpaths = [str(path.relative_to(ROOT)) for path in logd_files]
         decrypt_target = logd_relpaths[0] if len(logd_relpaths) == 1 else str(logd_path.relative_to(ROOT))
