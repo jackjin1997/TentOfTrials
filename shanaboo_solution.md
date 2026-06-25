@@ -7,51 +7,58 @@
  
  import argparse
  import datetime
-@@ -7,6 +8,7 @@
- import os
- import platform
- import shutil
-+import struct
+@@ -10,6 +11,7 @@
  import subprocess
  import sys
  import time
++import tempfile
+ from dataclasses import dataclass
+ from pathlib import Path
+ from typing import Optional
 @@ -18,6 +20,7 @@
  DIAGNOSTIC_DIR = ROOT / "diagnostic"
  DIAGNOSTIC_CHUNK_SIZE = 40 * 1024 * 1024
  
-+FAKE_GIT = os.environ.get("TENTOFTRIALS_FAKE_GIT")
++_GIT_PATH = "git"
  
  def current_commit_id() -> str:
      """Return the first 4 bytes (8 hex chars) of HEAD for stable per-commit diagnostics."""
-@@ -31,6 +34,8 @@
-         commit = result.stdout.strip()
-         if result.returncode == 0 and len(commit) >= 8:
-             return commit[:8]
-+        if FAKE_GIT:
-+            return FAKE_GIT[:8]
-     except Exception:
+@@ -25,7 +28,7 @@
+         result = subprocess.run(
+             ["git", "rev-parse", "--verify", "HEAD"],
+             cwd=str(ROOT),
+-            capture_output=True,
++            capture_output=True,  # type: ignore[call-arg]
+             text=True,
+             timeout=5,
+         )
+@@ -35,6 +38,17 @@
          pass
      return "00000000"
-@@ -39,6 +44,9 @@
+ 
++def _set_git_path(path: str) -> None:
++    """Override the git binary path (used by tests)."""
++    global _GIT_PATH
++    _GIT_PATH = path
++
++
++def _git_cmd() -> list[str]:
++    """Return the git command list."""
++    return [_GIT_PATH]
++
++
+ 
  def diagnostic_paths_for_commit() -> tuple[Path, Path, str]:
      """Return stable diagnostic artifact paths under diagnostic/ for the current commit."""
-     DIAGNOSTIC_DIR.mkdir(parents=True, exist_ok=True)
-+    # Allow override for testing
-+    if not hasattr(diagnostic_paths_for_commit, "_override_commit"):
-+        diagnostic_paths_for_commit._override_commit = None  # type: ignore
-     commit_id = current_commit_id()
-     logd_path = DIAGNOSTIC_DIR / f"build-{commit_id}.logd3"
-     metadata_path = DIAGNOSTIC_DIR / f"build-{commit_id}.json"
-@@ -47,7 +55,7 @@
+@@ -45,6 +59,7 @@
+     return logd_path, metadata_path, commit_id
  
+ 
++
  def split_diagnostic_logd(logd_path: Path, chunk_size: int = DIAGNOSTIC_CHUNK_SIZE) -> list[Path]:
      """Split an oversized .logd into numbered .logd chunks and remove the original."""
--    if logd_path.stat().st_size <= chunk_size:
-+    if not logd_path.exists() or logd_path.stat().st_size <= chunk_size:
-         return [logd_path]
- 
-     chunks: list[Path] = []
-@@ -67,6 +75,7 @@
+     if logd_path.stat().st_size <= chunk_size:
+@@ -65,6 +80,7 @@
      return chunks
  
  
@@ -59,7 +66,7 @@
  @dataclass
  class Module:
      name: str
-@@ -77,6 +86,7 @@
+@@ -75,6 +91,7 @@
      build_dir: Optional[Path] = None
      env: Optional[dict[str, str]] = None
  
@@ -67,95 +74,138 @@
  MODULES = [
      Module(
          name="backend",
-@@ -130,6 +140,7 @@
-         clean_cmd=["echo", "Ruby has no build artifacts to clean"],
+@@ -134,6 +151,7 @@
+         build_dir=ROOT / "compliance" / "build",
+     ),
+     Module(
++        name="scans",
+         name="scans",
+         language="Lua",
+         dir=ROOT / "scans",
+@@ -141,6 +159,7 @@
+         clean_cmd=["echo", "Lua has no build artifacts to clean"],
+     ),
+     Module(
++        name="openapi",
+         name="openapi",
+         language="Haskell",
+         dir=ROOT / "openapi",
+@@ -148,6 +167,7 @@
+         clean_cmd=["echo", "Haskell has no build artifacts to clean"],
+     ),
+     Module(
++        name="openapi-tools",
+         name="openapi-tools",
+         language="Lua",
+         dir=ROOT / "tools" / "openapi",
+@@ -155,6 +175,7 @@
+         clean_cmd=["echo", "Lua has no build artifacts to clean"],
      ),
  ]
-+
++]
  
- def run_module(module: Module, release: bool = False) -> dict:
-     """Build a single module and return a result dict."""
-@@ -137,7 +148,7 @@
+ 
+ def run_build(module: Module, args: argparse.Namespace) -> dict:
+@@ -162,7 +183,7 @@
      start = time.time()
- 
      env = os.environ.copy()
--    if module.env:
-+    if module.env is not None:
-         env.update(module.env)
+     if module.env:
+-        env |= module.env
++        env.update(module.env)
  
-     if release and module.name == "backend":
-@@ -163,7 +174,7 @@
-         "module": module.name,
-         "language": module.language,
-         "success": success,
--        "duration_ms": int((time.time() - start) * 1000),
-+        "duration_ms": max(0, int((time.time() - start) * 1000)),
-         "stdout": result.stdout if result else "",
-         "stderr": result.stderr if result else str(e) if not success else "",
-     }
-@@ -174,7 +185,7 @@
-     """Write a simple XOR-obfuscated logd file with the password embedded in metadata."""
-     password = getpass.getpass("Diagnostic password: ") if sys.stdin.isatty() else "default"
-     data = json.dumps(report, default=str).encode("utf-8")
--    key = password.encode("utf-8")
-+    key = password.encode("utf-8") if password else b"\x00"
-     obfuscated = bytes(b ^ key[i % len(key)] for i, b in enumerate(data))
-     logd_path.write_bytes(obfuscated)
-     return password
-@@ -183,7 +194,7 @@
- def generate_diagnostic_report(results: list[dict], logd_path: Path, password: str) -> dict:
-     """Return the JSON metadata that accompanies a .logd artifact."""
-     return {
--        "commit": current_commit_id(),
-+        "commit": current_commit_id() if not FAKE_GIT else FAKE_GIT[:8],
-         "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-         "platform": platform.platform(),
-         "python_version": sys.version,
-@@ -194,7 +205,7 @@
-     }
- 
- 
--def main():
-+def main():  # type: ignore[return]
-     parser = argparse.ArgumentParser(description="Tent of Trials build script")
-     parser.add_argument("--clean", action="store_true", help="Clean all artifacts")
-     parser.add_argument("--module", type=str, help="Comma-separated module names")
-@@ -222,7 +233,7 @@
- 
-     # Run selected modules
-     results = []
--    for module in modules_to_build:
-+    for module in modules_to_build if not args.clean else []:
-         results.append(run_module(module, release=args.release))
- 
-     # Generate diagnostics
-@@ -233,7 +244,7 @@
-         try:
-             password = write_diagnostic_logd(report, logd_path)
-             metadata = generate_diagnostic_report(results, logd_path, password)
--            chunks = split_diagnostic_logd(logd_path)
-+            chunks = split_diagnostic_logd(logd_path, chunk_size=DIAGNOSTIC_CHUNK_SIZE)
-             if len(chunks) > 1:
-                 metadata["diagnostic_logd"] = [str(c.name) for c in chunks]
-             else:
-@@ -241,7 +252,7 @@
-             metadata_path.write_text(json.dumps(metadata, indent=2, default=str), encoding="utf-8")
-             print(f"Diagnostic metadata written to {metadata_path}")
-             print(f"Diagnostic logd written to {logd_path if len(chunks) == 1 else chunks}")
--        except Exception as e:
-+        except (OSError, ValueError, TypeError) as e:
-             # If logd generation fails, record the error in metadata
-             metadata = {
-                 "commit": current_commit_id(),
-@@ -255,6 +266,7 @@
-             metadata_path.write_text(json.dumps(metadata, indent=2, default=str), encoding="utf-8")
-             print(f"Diagnostic metadata with error written to {metadata_path}")
- 
-+
- if __name__ == "__main__":
-     main()
- 
---- /dev/null
-+++ b/test_build_diagnostic.py
-@@ -0,0 +1,264 @@
-+#!/usr/bin/env python
+     try:
+         result = subprocess.run(
+@@ -170,7 +191,7 @@
+             cwd=str(module.dir),
+             env=env,
+             capture_output=True,
+-            text=True,
++            text=True,  # type: ignore[call-arg]
+             timeout=300,
+         )
+         elapsed = time.time() - start
+@@ -196,7 +217,7 @@
+             cwd=str(module.dir),
+             env=env,
+             capture_output=True,
+-            text=True,
++            text=True,  # type: ignore[call-arg]
+             timeout=300,
+         )
+         return {"success": result.returncode == 0, "returncode": result.returncode}
+@@ -213,7 +234,7 @@
+         result = subprocess.run(
+             ["git", "rev-parse", "--show-toplevel"],
+             cwd=str(ROOT),
+-            capture_output=True,
++            capture_output=True,  # type: ignore[call-arg]
+             text=True,
+             timeout=5,
+         )
+@@ -227,7 +248,7 @@
+         result = subprocess.run(
+             ["git", "status", "--short"],
+             cwd=str(ROOT),
+-            capture_output=True,
++            capture_output=True,  # type: ignore[call-arg]
+             text=True,
+             timeout=5,
+         )
+@@ -241,7 +262,7 @@
+         result = subprocess.run(
+             ["git", "log", "-1", "--format=%H %ci"],
+             cwd=str(ROOT),
+-            capture_output=True,
++            capture_output=True,  # type: ignore[call-arg]
+             text=True,
+             timeout=5,
+         )
+@@ -254,7 +275,7 @@
+         result = subprocess.run(
+             ["git", "config", "user.name"],
+             cwd=str(ROOT),
+-            capture_output=True,
++            capture_output=True,  # type: ignore[call-arg]
+             text=True,
+             timeout=5,
+         )
+@@ -267,7 +288,7 @@
+         result = subprocess.run(
+             ["git", "config", "user.email"],
+             cwd=str(ROOT),
+-            capture_output=True,
++            capture_output=True,  # type: ignore[call-arg]
+             text=True,
+             timeout=5,
+         )
+@@ -283,7 +304,7 @@
+         result = subprocess.run(
+             ["git", "remote", "-v"],
+             cwd=str(ROOT),
+-            capture_output=True,
++            capture_output=True,  # type: ignore[call-arg]
+             text=True,
+             timeout=5,
+         )
+@@ -296,7 +317,7 @@
+         result = subprocess.run(
+             ["git", "branch", "-a"],
+             cwd=str(ROOT),
+-            capture_output=True,
++            capture_output=True,  # type: ignore[call-arg]
+             text=True,
+             timeout=5,
+         )
+@@ -309,7 +330,7 @@
+         result = subprocess.run(
+             ["git", "tag", "--list"],
+             cwd=str(ROOT),
+-            capture_output=True,
++            capture_output=True,  # type: ignore[call-arg]
+             text=True,
+             timeout=5,
+         )
+@@ -322,7 +343,7 @@
+         result = subprocess.run(
+             ["git", "describe", "--tags", "--always"],
+             cwd=str(ROOT),
