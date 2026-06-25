@@ -128,8 +128,7 @@ class TestBuildDiagnosticReport(unittest.TestCase):
         results = [("backend", True, 1.0, "ok", None)]
         logd_relpaths = ["diagnostic/build-abc.logd"]
         
-        report = build_diagnostic_report(
-            "abc", results, 
+        report = build_diagnostic_report(results, "abc", 
             logd_relpaths=logd_relpaths
         )
         
@@ -139,7 +138,7 @@ class TestBuildDiagnosticReport(unittest.TestCase):
         """PR note should explain missing logd."""
         results = [("backend", True, 1.0, "ok", None)]
         
-        report = build_diagnostic_report("abc", results)
+        report = build_diagnostic_report(results, "abc")
         
         self.assertIn("not created", report["pr_note"].lower())
 
