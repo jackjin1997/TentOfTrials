@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 import argparse
 import datetime
@@ -10,17 +9,16 @@ import platform
 import shutil
 import subprocess
 import sys
-import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from pathlib import Path
 from typing import Optional
+
 
 ROOT = Path(__file__).resolve().parent
 DIAGNOSTIC_DIR = ROOT / "diagnostic"
 DIAGNOSTIC_CHUNK_SIZE = 40 * 1024 * 1024
-DIAGNOSTIC_PASSWORD = "tent-of-trials-diagnostic-key-2024"
-
 
 def current_commit_id() -> str:
     """Return the first 4 bytes (8 hex chars) of HEAD for stable per-commit diagnostics."""
@@ -38,24 +36,24 @@ def current_commit_id() -> str:
     except Exception:
         pass
     return "00000000"
-
-
-def diagnostic_paths_for_commit() -> tuple[Path, Path, str]:
     """Return stable diagnostic artifact paths under diagnostic/ for the current commit."""
     DIAGNOSTIC_DIR.mkdir(parents=True, exist_ok=True)
     commit_id = current_commit_id()
+    # Use .logd extension for encrypted log artifact
+    logd_path = DIAGNOSTIC_DIR / f"build-{commit_id}.logd"
+    metadata_path = DIAGNOSTIC_DIR / f"build-{commit_id}.json"
+    return logd_path, metadata_path, commit_id
     logd_path = DIAGNOSTIC_DIR / f"build-{commit_id}.logd"
     metadata_path = DIAGNOSTIC_DIR / f"build-{commit_id}.json"
     return logd_path, metadata_path, commit_id
 
 
+def split_diagnostic_logd(logd_path: Path, chunk_size: int = DIAGNOSTIC_CHUNK_SIZE) -> list[Path]:
     """Split an oversized .logd into numbered .logd chunks and remove the original."""
     if logd_path.stat().st_size <= chunk_size:
         return [logd_path]
 
     chunks: list[Path] = []
-    stem = logd_path.stem
-    with logd_path.open("rb") as source:
     stem = logd_path.stem
     with logd_path.open("rb") as source:
         index = 1
@@ -64,7 +62,6 @@ def diagnostic_paths_for_commit() -> tuple[Path, Path, str]:
             if not data:
                 break
             chunk_path = logd_path.with_name(f"{stem}-part{index:03d}.logd")
-            chunk_path.write_bytes(data)
     logd_path.unlink()
     return chunks
 
@@ -73,9 +70,9 @@ def diagnostic_paths_for_commit() -> tuple[Path, Path, str]:
 class Module:
     name: str
 
+
 @dataclass
 class Module:
-    name: str
     build_dir: Optional[Path] = None
     env: Optional[dict[str, str]] = None
 
@@ -83,6 +80,7 @@ class Module:
 MODULES = [
     Module(
         name="backend",
+    env: Optional[dict[str, str]] = None
 
 MODULES = [
     Module(
@@ -124,11 +122,6 @@ MODULES = [
         language="C++",
         dir=ROOT / "frailbox" / "engine",
         build_cmd=["cmake", "--build", "build"],
-        clean_cmd=["rm", "-rf", "build"],
-        build_dir=ROOT / "frailbox" / "engine" / "build" / "trial-engine",
-    ),
-    Module(
-        name="compliance",
         name="v2-market-stream",
         language="Ruby",
         dir=ROOT / "v2" / "services",
@@ -136,25 +129,30 @@ MODULES = [
         clean_cmd=["echo", "Ruby has no build artifacts to clean"],
     ),
     Module(
+        build_cmd=["javac", "-d", "build", "ComplianceAuditor.java"],
+        clean_cmd=["rm", "-rf", "build"],
+        build_dir=ROOT / "compliance" / "build",
+    ),
+    Module(
         name="v2-market-stream",
         language="Ruby",
         dir=ROOT / "v2" / "services",
         build_cmd=["ruby", "-c", "market_stream.rb"],
-        clean_cmd=["echo", "Lua has no build artifacts to clean"],
+        clean_cmd=["echo", "Ruby has no build artifacts to clean"],
+        build_dir=None,
+    ),
+    Module(
+        name="nfc-scanner",
+        language="Lua",
+        dir=ROOT / "frailbox" / "nfc",
+        build_cmd=["luac", "-p", "scanner.lua"],
     ),
 ]
 
 
-def run_module(module: Module, release: bool = False) -> dict:
+def run_module(module: Module, args: argparse.Namespace) -> dict:
     """Build a single module and return a result dict."""
-        dir=ROOT / "frailbox" / "nfc",
-        build_cmd=["luac", "-p", "scanner.lua"],
-        clean_cmd=["echo", "Lua has no build artifacts to clean"],
-        build_dir=None,
-    ),
-    Module(
-        name="openapi-haskell",
-        language="Haskell",
+    print(f"[build] {module.name} ({module.language})")
         dir=ROOT / "docs" / "openapi",
         build_cmd=["ghc", "-fno-code", "Types.hs", "Server.hs", "Validate.hs", "Generate.hs"],
         clean_cmd=["rm", "-f", "*.hi", "*.o", "*.hie"],
@@ -167,44 +165,43 @@ def run_module(module: Module, release: bool = False) -> dict:
         build_cmd=["luac", "-p", "openapi_diff.lua", "openapi_mock.lua", "openapi_pact.lua"],
         clean_cmd=["echo", "Nothing to clean"],
         build_dir=None,
+    ),
+]
+
+ENCRYPTLY_DIR = ROOT / "tools" / "encryptly"
+ENCRYPTLY_BINARIES = {
+    "linux-x64": ENCRYPTLY_DIR / "linux-x64" / "encryptly",
+    "linux-arm64": ENCRYPTLY_DIR / "linux-arm64" / "encryptly",
+    "macos-arm64": ENCRYPTLY_DIR / "macos-arm64" / "encryptly",
+    "windows-x64": ENCRYPTLY_DIR / "windows-x64" / "encryptly.exe",
+    "windows-arm64": ENCRYPTLY_DIR / "windows-arm64" / "encryptly.exe",
+}
         "duration_ms": int((time.time() - start) * 1000),
     }
 
 
-def build_all(args) -> dict:
-    """Build all requested modules and return a diagnostic report dict."""
-    report = {
-    "linux-arm64": ENCRYPTLY_DIR / "linux-arm64" / "encryptly",
-        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        "user": getpass.getuser(),
-        "host": platform.node(),
-        "commit_id": current_commit_id(),
-        "modules": [],
-    }
-
-
-def _normalize_arch(machine: str) -> Optional[str]:
-    machine = machine.lower()
-    if machine in {"x86_64", "amd64"}:
+def build_all(args: argparse.Namespace) -> list[dict]:
+    """Build all requested modules and return result list."""
+    if args.module:
         return "x64"
     if machine in {"aarch64", "arm64"}:
         return "arm64"
     return None
 
-    return report
+
+        results.append(run_module(mod, args))
+    return results
 
 
-def write_diagnostics(report: dict) -> dict:
-    """Encrypt build log and write metadata JSON. Returns updated report with paths."""
-    logd_path, metadata_path, commit_id = diagnostic_paths_for_commit()
-    if system == "darwin":
-    # Build a plaintext log string
-    lines = [
-        f"Tent of Trials Build Diagnostic",
-        f"Commit: {report.get('commit_id', commit_id)}",
-        f"Timestamp: {report['timestamp']}",
-        f"User: {report['user']}",
-        f"Host: {report['host']}",
+def write_diagnostic_metadata(
+    metadata_path: Path,
+    commit_id: str,
+    if system == "windows":
+        return "windows"
+    return None
+
+
+def detect_encryptly_platform() -> Optional[str]:
     os_name = _normalize_os()
     arch = _normalize_arch(platform.machine())
     if os_name is None or arch is None:
@@ -215,31 +212,32 @@ def write_diagnostics(report: dict) -> dict:
 def get_encryptly_bin() -> Optional[Path]:
     target = detect_encryptly_platform()
     if target is not None:
-    # Simple XOR encryption for the logd payload
-    plaintext = "\n".join(lines).encode("utf-8")
-    key = DIAGNOSTIC_PASSWORD.encode("utf-8")
-    encrypted = bytes(b ^ key[i % len(key)] for i, b in enumerate(plaintext))
-
-    try:
-        logd_path.write_bytes(encrypted)
-    return None
-        # Handle chunking if the logd is too large
-        chunks = split_diagnostic_logd(logd_path)
-        report["diagnostic_logd"] = [str(c) for c in chunks]
-    except OSError as e:
-        report["diagnostic_logd_error"] = str(e)
-        report["diagnostic_logd"] = None
-    else:
-class Colors:
-    GREEN = "\033[92m"
-    YELLOW = "\033[93m"
-
-    return report
+        binary = ENCRYPTLY_BINARIES.get(target)
+        if binary is not None and binary.exists():
+    with metadata_path.open("w", encoding="utf-8") as f:
+        json.dump(metadata, f, indent=2)
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Tent of Trials build orchestrator")
-    parser.add_argument("--clean", action="store_true", help="Clean build artifacts")
+def encrypt_logd(source_path: Path, dest_path: Path, password: str) -> None:
+    """Encrypt source file into dest_path using openssl."""
+    cmd = [
+
+
+def encryptly_platform_help() -> str:
+    detected = detect_encryptly_platform() or "unsupported"
+    available = ", ".join(sorted(ENCRYPTLY_BINARIES))
+    ]
+    subprocess.run(cmd, check=True)
+
+
+def generate_diagnostic(results: list[dict], commit_id: str) -> None:
+    """Generate encrypted diagnostic logd and JSON metadata."""
+    logd_path, metadata_path, commit_id = diagnostic_paths_for_commit()
+    CYAN = "\033[96m"
+    BOLD = "\033[1m"
+    RESET = "\033[0m"
+    GRAY = "\033[90m"
+
 def color(text: str, code: str) -> str:
     if not sys.stdout.isatty():
         return text
@@ -256,23 +254,24 @@ def check_prerequisites() -> list[str]:
         "make": "Make",
         "python3": "Python",
         "javac": "Java (JDK)",
-    report = build_all(args)
-    write_diagnostics(report)
+        "ruby": "Ruby",
+        "diagnostic_logd": str(logd_path) if logd_path.exists() else None,
+        "diagnostic_logd_error": error_msg,
+        "diagnostic_logd_chunks": [str(c) for c in chunks] if chunks else None,
+        "diagnostic_logd_chunks": [str(c) for c in chunks] if chunks else None,
+    }
 
-
-if __name__ == "__main__":
-    main()
-    missing = []
-    for cmd, label in required.items():
+    write_diagnostic_metadata(
         if shutil.which(cmd) is None:
             missing.append(f"{label} ({cmd})")
 
-    return missing
+        logd_error=error_msg,
+    )
 
-def build_module(
-    module: Module,
-    release: bool = False,
-    verbose: bool = False,
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Tent of Trials build script")
+    parser.add_argument("--clean", action="store_true", help="Clean all artifacts")
 ) -> tuple[bool, float, str]:
 
     print(f"\n  {color('▸', Colors.CYAN)} Building {color(module.name, Colors.BOLD)} ({module.language})...")
@@ -293,11 +292,12 @@ def build_module(
                     cwd=str(module.dir),
                     capture_output=not verbose,
                     text=True,
-                    timeout=120,
-                    env={k: v for k, v in env.items() if k != "NODE_ENV"},
-                )
-                if install_result.returncode != 0:
-                    return False, time.time() - start, f"npm install failed:\n{install_result.stderr}"
+    generate_diagnostic(results, commit_id)
+    print("[build] Done.")
+
+
+if __name__ == "__main__":
+    main()
             except subprocess.TimeoutExpired:
                 return False, time.time() - start, "npm install TIMEOUT (120s)"
 
