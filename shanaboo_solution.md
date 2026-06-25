@@ -7,39 +7,51 @@
  
  import argparse
  import datetime
-@@ -9,6 +10,7 @@
+@@ -7,6 +8,7 @@
+ import os
+ import platform
  import shutil
++import struct
  import subprocess
  import sys
-+import tempfile
  import time
- from dataclasses import dataclass
- from pathlib import Path
-@@ -17,6 +19,7 @@
- ROOT = Path(__file__).resolve().parent
+@@ -18,6 +20,7 @@
  DIAGNOSTIC_DIR = ROOT / "diagnostic"
  DIAGNOSTIC_CHUNK_SIZE = 40 * 1024 * 1024
-+DIAGNOSTIC_PASSWORD = "tent-of-trials-diag"
  
++FAKE_GIT = os.environ.get("TENTOFTRIALS_FAKE_GIT")
  
  def current_commit_id() -> str:
-@@ -34,6 +37,7 @@
+     """Return the first 4 bytes (8 hex chars) of HEAD for stable per-commit diagnostics."""
+@@ -31,6 +34,8 @@
+         commit = result.stdout.strip()
+         if result.returncode == 0 and len(commit) >= 8:
+             return commit[:8]
++        if FAKE_GIT:
++            return FAKE_GIT[:8]
+     except Exception:
+         pass
      return "00000000"
- 
- 
-+
+@@ -39,6 +44,9 @@
  def diagnostic_paths_for_commit() -> tuple[Path, Path, str]:
      """Return stable diagnostic artifact paths under diagnostic/ for the current commit."""
      DIAGNOSTIC_DIR.mkdir(parents=True, exist_ok=True)
-@@ -43,6 +47,7 @@
-     return logd_path, metadata_path, commit_id
++    # Allow override for testing
++    if not hasattr(diagnostic_paths_for_commit, "_override_commit"):
++        diagnostic_paths_for_commit._override_commit = None  # type: ignore
+     commit_id = current_commit_id()
+     logd_path = DIAGNOSTIC_DIR / f"build-{commit_id}.logd3"
+     metadata_path = DIAGNOSTIC_DIR / f"build-{commit_id}.json"
+@@ -47,7 +55,7 @@
  
- 
-+
  def split_diagnostic_logd(logd_path: Path, chunk_size: int = DIAGNOSTIC_CHUNK_SIZE) -> list[Path]:
      """Split an oversized .logd into numbered .logd chunks and remove the original."""
-     if logd_path.stat().st_size <= chunk_size:
-@@ -64,6 +69,7 @@
+-    if logd_path.stat().st_size <= chunk_size:
++    if not logd_path.exists() or logd_path.stat().st_size <= chunk_size:
+         return [logd_path]
+ 
+     chunks: list[Path] = []
+@@ -67,6 +75,7 @@
      return chunks
  
  
@@ -47,7 +59,7 @@
  @dataclass
  class Module:
      name: str
-@@ -74,6 +80,7 @@
+@@ -77,6 +86,7 @@
      build_dir: Optional[Path] = None
      env: Optional[dict[str, str]] = None
  
@@ -55,136 +67,95 @@
  MODULES = [
      Module(
          name="backend",
-@@ -118,7 +125,8 @@
-         name="v2-market-stream",
-         language="Ruby",
-         dir=ROOT / "v2" / "services",
--        build_cmd=["ruby", "-c", "market_stream.rb"],
-+        build_cmd=["ruby", "-c", "market_stream.rb"],
+@@ -130,6 +140,7 @@
          clean_cmd=["echo", "Ruby has no build artifacts to clean"],
      ),
-     Module(
-@@ -129,7 +137,7 @@
-         clean_cmd=["rm", "-rf", "build"],
-         build_dir=ROOT / "compliance" / "build",
-     ),
--]
-+]  # type: list[Module]
- 
+ ]
++
  
  def run_module(module: Module, release: bool = False) -> dict:
-@@ -137,7 +145,7 @@
+     """Build a single module and return a result dict."""
+@@ -137,7 +148,7 @@
+     start = time.time()
+ 
      env = os.environ.copy()
-     if module.env:
+-    if module.env:
++    if module.env is not None:
          env.update(module.env)
--    
-+
-     # Rust release mode
-     if module.name == "backend" and release:
-         cmd = ["cargo", "build", "--release"]
-@@ -152,7 +160,7 @@
-         start = time.time()
-         result = subprocess.run(
-             cmd,
--            cwd=str(module.dir),
-+            cwd=str(module.dir) if module.dir else str(ROOT),
-             capture_output=True,
-             text=True,
-             env=env,
-@@ -169,7 +177,7 @@
-             "stderr": result.stderr,
-             "duration_sec": round(duration, 3),
-         }
--    except Exception as e:
-+    except subprocess.TimeoutExpired as e:
-         return {
-             "success": False,
-             "returncode": -1,
-@@ -177,6 +185,14 @@
-             "stderr": str(e),
-             "duration_sec": round(time.time() - start, 3),
-         }
-+    except Exception as e:
-+        return {
-+            "success": False,
-+            "returncode": -1,
-+            "stdout": "",
-+            "stderr": str(e),
-+            "duration_sec": 0.0,
-+        }
  
- 
- def encrypt_logd(source_path: Path, dest_path: Path, password: str) -> bool:
-@@ -184,7 +200,7 @@
-     try:
-         # Use openssl to encrypt the log file
-         with source_path.open("rb") as f:
--            data = f.read()
-+            data = f.read() if source_path.exists() else b""
-         
-         # Simple XOR encryption for demonstration (in production, use proper encryption)
-         encrypted = bytearray()
-@@ -193,7 +209,7 @@
-             encrypted.append(b ^ key_byte)
-         
-         dest_path.write_bytes(bytes(encrypted))
--        return True
-+        return dest_path.exists()
-     except Exception:
-         return False
- 
-@@ -201,7 +217,7 @@
- def generate_diagnostic_report(results: list[dict], commit_id: str) -> dict:
-     """Generate the diagnostic metadata report."""
-     report = {
--        "commit_id": commit_id,
-+        "commit": commit_id,
-         "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-         "platform": {
-             "system": platform.system(),
-@@ -211,7 +227,7 @@
-         },
-         "user": getpass.getuser(),
-         "modules": [],
--        "diagnostic_logd": None,
-+        "diagnostic_logd": "",
-         "diagnostic_logd_error": None,
+     if release and module.name == "backend":
+@@ -163,7 +174,7 @@
+         "module": module.name,
+         "language": module.language,
+         "success": success,
+-        "duration_ms": int((time.time() - start) * 1000),
++        "duration_ms": max(0, int((time.time() - start) * 1000)),
+         "stdout": result.stdout if result else "",
+         "stderr": result.stderr if result else str(e) if not success else "",
      }
-     
-@@ -228,7 +244,7 @@
-             "language": module_name,
-             "success": result["success"],
-             "duration_sec": result["duration_sec"],
--            "returncode": result["returncode"],
-+            "return_code": result["returncode"],
-         })
-     
-     return report
-@@ -240,7 +256,7 @@
-     # Create a temporary log file
-     log_path = DIAGNOSTIC_DIR / f"build-{commit_id}.log"
-     with log_path.open("w") as f:
--        f.write(f"Build diagnostic for commit {commit_id}\n")
-+        f.write(f"Build diagnostic for commit {commit_id}\n")
-         f.write(f"Timestamp: {datetime.datetime.now(datetime.timezone.utc).isoformat()}\n")
-         f.write(f"Platform: {platform.system()} {platform.machine()}\n")
-         f.write(f"Python: {platform.python_version()}\n")
-@@ -254,7 +270,7 @@
-             f.write(f"  Duration: {result['duration_sec']}s\n")
-             f.write(f"  Stdout: {result['stdout'][:500]}\n")
-             f.write(f"  Stderr: {result['stderr'][:500]}\n")
--    
+@@ -174,7 +185,7 @@
+     """Write a simple XOR-obfuscated logd file with the password embedded in metadata."""
+     password = getpass.getpass("Diagnostic password: ") if sys.stdin.isatty() else "default"
+     data = json.dumps(report, default=str).encode("utf-8")
+-    key = password.encode("utf-8")
++    key = password.encode("utf-8") if password else b"\x00"
+     obfuscated = bytes(b ^ key[i % len(key)] for i, b in enumerate(data))
+     logd_path.write_bytes(obfuscated)
+     return password
+@@ -183,7 +194,7 @@
+ def generate_diagnostic_report(results: list[dict], logd_path: Path, password: str) -> dict:
+     """Return the JSON metadata that accompanies a .logd artifact."""
+     return {
+-        "commit": current_commit_id(),
++        "commit": current_commit_id() if not FAKE_GIT else FAKE_GIT[:8],
+         "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+         "platform": platform.platform(),
+         "python_version": sys.version,
+@@ -194,7 +205,7 @@
+     }
+ 
+ 
+-def main():
++def main():  # type: ignore[return]
+     parser = argparse.ArgumentParser(description="Tent of Trials build script")
+     parser.add_argument("--clean", action="store_true", help="Clean all artifacts")
+     parser.add_argument("--module", type=str, help="Comma-separated module names")
+@@ -222,7 +233,7 @@
+ 
+     # Run selected modules
+     results = []
+-    for module in modules_to_build:
++    for module in modules_to_build if not args.clean else []:
+         results.append(run_module(module, release=args.release))
+ 
+     # Generate diagnostics
+@@ -233,7 +244,7 @@
+         try:
+             password = write_diagnostic_logd(report, logd_path)
+             metadata = generate_diagnostic_report(results, logd_path, password)
+-            chunks = split_diagnostic_logd(logd_path)
++            chunks = split_diagnostic_logd(logd_path, chunk_size=DIAGNOSTIC_CHUNK_SIZE)
+             if len(chunks) > 1:
+                 metadata["diagnostic_logd"] = [str(c.name) for c in chunks]
+             else:
+@@ -241,7 +252,7 @@
+             metadata_path.write_text(json.dumps(metadata, indent=2, default=str), encoding="utf-8")
+             print(f"Diagnostic metadata written to {metadata_path}")
+             print(f"Diagnostic logd written to {logd_path if len(chunks) == 1 else chunks}")
+-        except Exception as e:
++        except (OSError, ValueError, TypeError) as e:
+             # If logd generation fails, record the error in metadata
+             metadata = {
+                 "commit": current_commit_id(),
+@@ -255,6 +266,7 @@
+             metadata_path.write_text(json.dumps(metadata, indent=2, default=str), encoding="utf-8")
+             print(f"Diagnostic metadata with error written to {metadata_path}")
+ 
 +
-     # Encrypt the log file
-     logd_path, metadata_path, _ = diagnostic_paths_for_commit()
-     password = "tent-of-trials-diag"
-@@ -264,7 +280,7 @@
-         report["diagnostic_logd"] = str(logd_path)
-     else:
-         report["diagnostic_logd_error"] = "Failed to encrypt diagnostic log"
--    
-+
-     # Split large logd files
-     if logd_path.exists():
-         chunks = split_diagnostic_logd(logd_path)
-@@ -273,
+ if __name__ == "__main__":
+     main()
+ 
+--- /dev/null
++++ b/test_build_diagnostic.py
+@@ -0,0 +1,264 @@
++#!/usr/bin/env python
