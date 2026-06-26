@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 
 """Build script for the TentOfTrials trading and risk platform.
-
-Provides a unified interface to build, clean, and diagnose all language modules."""
+Compiles all language modules and generates encrypted diagnostic artifacts."""
 
 import argparse
 import datetime
