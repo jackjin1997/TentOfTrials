@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-
-"""Build orchestration script for the TentOfTrials multi-module project."""
+"""
+Build orchestration script for the Tent of Trials multi-language monorepo.
+"""
 
 import argparse
 import datetime
