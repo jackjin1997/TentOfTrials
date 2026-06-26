@@ -1,1 +1,4 @@
-"""Utility scripts and helper tools for the TentOfTrials platform."""
+"""
+Tools package containing utility scripts and helper programs.
+Provides shared tooling for development, deployment, and maintenance tasks.
+"""
