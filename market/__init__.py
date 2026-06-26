@@ -1,1 +1,4 @@
-"""Go market data service for real-time price feeds and order book management."""
+"""
+Market package for trading engine and order matching logic.
+Handles market data processing, order books, and trade execution in Go.
+"""
