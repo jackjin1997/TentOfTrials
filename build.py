@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 
-"""Build script for the TentOfTrials trading and risk platform. Orchestrates building, cleaning, and diagnostics for all language modules."""
+"""Build script for the TentOfTrials trading and risk platform.
+
+Provides a CLI to build, clean, and diagnose all language modules in the repository."""
 
 import argparse
 import datetime
-import getpass
 import json
 import os
 import platform
