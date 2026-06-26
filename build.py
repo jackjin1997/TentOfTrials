@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Build orchestration script for the Tent of Trials multi-language monorepo.
+Build orchestration script for the Tent of Trials platform. Handles building, cleaning, and diagnostics for all modules across multiple languages.
 """
 
 import argparse
