@@ -1,1 +1,4 @@
-"""C-based frailbox module for low-level system operations and engine integration."""
+"""
+Frailbox package for low-level C components and system utilities.
+Provides memory-safe wrappers and hardware interface abstractions.
+"""
