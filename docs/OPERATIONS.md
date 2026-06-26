@@ -1,3 +1,4 @@
+
 # Operations Guide
 
 > WARNING: This operations guide is a LEGACY document. It was last updated
@@ -112,8 +113,21 @@ Key runbooks:
 ### Communication
 
 During an incident, use the following channels:
+| SEV2 | Major feature degradation | 
 
-| Channel | Purpose |
+## Backup and Restore
+
+### Backup Verification
+
+After restoring a database backup to staging, run the backup verification helper to validate table completeness and row counts.
+
+#### Using `tools/verify_backup.py`
+
+The `verify_backup.py` script compares expected tables and row counts against a restored database or exported metadata file.
+
+**Basic usage:**
+
+
 |---------|---------|
 | `#ops-alerts` | Automated alerts from monitoring |
 | `#ops-incident` | Real-time incident coordination |

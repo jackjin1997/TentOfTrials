@@ -1,5 +1,9 @@
-#!/usr/bin/env bash
-#
+"""
+Shell script for running the AI pipeline automation.
+"""
+
+#!/bin/bash
+set -euo pipefail
 # ai_pipeline.sh  -  AI Training Pipeline Orchestrator
 # ==================================================
 #
