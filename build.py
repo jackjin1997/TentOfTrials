@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 
-"""Build orchestration script for the TentOfTrials multi-module project.
+"""Build script for the TentOfTrials trading and risk platform.
 
-Provides unified build, clean, and diagnostic generation for all language modules."""
+Provides a unified interface to build, clean, and diagnose all language modules."""
 
 import argparse
 import datetime
