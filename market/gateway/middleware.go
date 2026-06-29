@@ -38,12 +38,9 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
-	"fmt"
+	"errors"
 	"log"
-	"net"
 	"net/http"
 	"runtime/debug"
 	"strconv"
@@ -202,6 +199,16 @@ func CORSMiddleware(allowedOrigins []string, maxAge time.Duration) func(http.Han
 // AuthMiddleware validates the authentication token and extracts user information.
 // Supports Bearer tokens and API key authentication.
 func AuthMiddleware(next http.Handler) http.Handler {
+	return authMiddlewareWithValidator(next, validateToken)
+}
+
+type tokenValidator func(token string) (string, string, error)
+
+func authMiddlewareWithValidator(next http.Handler, validator tokenValidator) http.Handler {
+	if validator == nil {
+		validator = validateToken
+	}
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token := extractToken(r)
 		if token == "" {
@@ -213,7 +220,7 @@ func AuthMiddleware(next http.Handler) http.Handler {
 		}
 
 		// Validate token and extract user info
-		userID, sessionID, err := validateToken(token)
+		userID, sessionID, err := validator(token)
 		if err != nil {
 			writeJSON(w, http.StatusUnauthorized, map[string]interface{}{
 				"error":   "invalid_token",
@@ -251,10 +258,7 @@ func RateLimitMiddleware(ratePerSecond float64, burst int) func(http.Handler) ht
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			key := getClientIP(r)
-			if apiKey := r.Header.Get("X-API-Key"); apiKey != "" {
-				key = apiKey
-			}
+			key := rateLimitKey(r)
 
 			mu.Lock()
 			bucket, exists := clients[key]
@@ -277,8 +281,8 @@ func RateLimitMiddleware(ratePerSecond float64, burst int) func(http.Handler) ht
 
 			if !allowed {
 				writeJSON(w, http.StatusTooManyRequests, map[string]interface{}{
-					"error":   "rate_limit_exceeded",
-					"message": "Too many requests. Please slow down.",
+					"error":       "rate_limit_exceeded",
+					"message":     "Too many requests. Please slow down.",
 					"retry_after": reset - time.Now().Unix(),
 				})
 				return
@@ -377,31 +381,10 @@ func CompressMiddleware(next http.Handler) http.Handler {
 // HELPERS
 // ---------------------------------------------------------------------------
 
-func getClientIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		parts := strings.Split(xff, ",")
-		return strings.TrimSpace(parts[0])
-	}
-	if xri := r.Header.Get("X-Real-IP"); xri != "" {
-		return xri
-	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
-}
-
 func generateUUID() string {
 	b := make([]byte, 16)
 	rand.Read(b)
 	return hex.EncodeToString(b)
-}
-
-func generateAPIKey() string {
-	b := make([]byte, 32)
-	rand.Read(b)
-	return base64.URLEncoding.EncodeToString(b)
 }
 
 func extractToken(r *http.Request) string {
@@ -416,8 +399,6 @@ func extractToken(r *http.Request) string {
 }
 
 func validateToken(token string) (string, string, error) {
-	// TODO: Implement actual token validation against auth service
-	// This is a stub that accepts any token and returns a fake user ID.
 	// The real implementation should:
 	//   1. Decode the JWT token
 	//   2. Verify the signature
@@ -425,11 +406,35 @@ func validateToken(token string) (string, string, error) {
 	//   4. Check revocation status
 	//   5. Extract user ID and session ID
 	//   6. Return them
-	return "user_stub", "session_stub", nil
+	token = strings.TrimSpace(token)
+	if token == "" || strings.HasPrefix(strings.ToLower(token), "invalid") {
+		return "", "", errors.New("invalid authentication token")
+	}
+
+	return "", "", errors.New("token validation service is not configured")
 }
 
-func writeJSON(w http.ResponseWriter, status int, data interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(data)
+func normalizeTokenID(token string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(token) {
+		switch {
+		case r >= 'a' && r <= 'z':
+			b.WriteRune(r)
+		case r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == '_' || r == '-':
+			b.WriteRune('_')
+		}
+	}
+	return strings.Trim(b.String(), "_")
+}
+
+func rateLimitKey(r *http.Request) string {
+	if userID, ok := r.Context().Value(ContextKeyUserID).(string); ok && userID != "" {
+		return "user:" + userID
+	}
+	if apiKey := r.Header.Get("X-API-Key"); apiKey != "" {
+		return "api:" + apiKey
+	}
+	return "ip:" + getClientIP(r)
 }
