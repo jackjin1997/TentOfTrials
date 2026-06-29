@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -28,9 +29,9 @@ func TestAuthMiddlewareMissingBearerTokenReturnsJSON401(t *testing.T) {
 
 func TestAuthMiddlewareInvalidTokenReturnsJSON401WithoutCallingHandler(t *testing.T) {
 	called := false
-	handler := AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := authMiddlewareWithValidator(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called = true
-	}))
+	}), testTokenValidator)
 
 	rec := performGatewayRequest(handler, "invalid-token")
 
@@ -44,13 +45,31 @@ func TestAuthMiddlewareInvalidTokenReturnsJSON401WithoutCallingHandler(t *testin
 	assertJSONField(t, body, "message", "invalid authentication token")
 }
 
+func TestAuthMiddlewareRejectsTokenWhenValidatorIsNotConfigured(t *testing.T) {
+	called := false
+	handler := AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+	}))
+
+	rec := performGatewayRequest(handler, "alpha")
+
+	if called {
+		t.Fatal("wrapped handler was called without a configured token validator")
+	}
+	assertStatus(t, rec, http.StatusUnauthorized)
+	assertJSONContentType(t, rec)
+	body := decodeGatewayJSON(t, rec)
+	assertJSONField(t, body, "error", "invalid_token")
+	assertJSONField(t, body, "message", "token validation service is not configured")
+}
+
 func TestAuthBeforeRateLimitPopulatesIdentityContext(t *testing.T) {
-	handler := AuthMiddleware(RateLimitMiddleware(1000, 1)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := authMiddlewareWithValidator(RateLimitMiddleware(1000, 1)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assertContextString(t, r, ContextKeyUserID, "user_alpha")
 		assertContextString(t, r, ContextKeySessionID, "session_alpha")
 		assertContextString(t, r, ContextKeyAuthMethod, "bearer")
 		w.WriteHeader(http.StatusNoContent)
-	})))
+	})), testTokenValidator)
 
 	rec := performGatewayRequest(handler, "alpha")
 
@@ -64,7 +83,7 @@ func TestRateLimitUsesAuthenticatedIdentityBeforeIP(t *testing.T) {
 	})
 
 	anonymous := limiter(handler)
-	authenticated := AuthMiddleware(limiter(handler))
+	authenticated := authMiddlewareWithValidator(limiter(handler), testTokenValidator)
 
 	firstAnonymous := performGatewayRequest(anonymous, "")
 	assertStatus(t, firstAnonymous, http.StatusNoContent)
@@ -74,6 +93,19 @@ func TestRateLimitUsesAuthenticatedIdentityBeforeIP(t *testing.T) {
 
 	secondAuthenticated := performGatewayRequest(authenticated, "alpha")
 	assertStatus(t, secondAuthenticated, http.StatusTooManyRequests)
+}
+
+func testTokenValidator(token string) (string, string, error) {
+	token = strings.TrimSpace(token)
+	if token == "" || strings.HasPrefix(strings.ToLower(token), "invalid") {
+		return "", "", errors.New("invalid authentication token")
+	}
+
+	tokenID := normalizeTokenID(token)
+	if tokenID == "" {
+		return "", "", errors.New("invalid authentication token")
+	}
+	return "user_" + tokenID, "session_" + tokenID, nil
 }
 
 func performGatewayRequest(handler http.Handler, token string) *httptest.ResponseRecorder {

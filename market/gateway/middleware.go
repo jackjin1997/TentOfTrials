@@ -199,6 +199,16 @@ func CORSMiddleware(allowedOrigins []string, maxAge time.Duration) func(http.Han
 // AuthMiddleware validates the authentication token and extracts user information.
 // Supports Bearer tokens and API key authentication.
 func AuthMiddleware(next http.Handler) http.Handler {
+	return authMiddlewareWithValidator(next, validateToken)
+}
+
+type tokenValidator func(token string) (string, string, error)
+
+func authMiddlewareWithValidator(next http.Handler, validator tokenValidator) http.Handler {
+	if validator == nil {
+		validator = validateToken
+	}
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token := extractToken(r)
 		if token == "" {
@@ -210,7 +220,7 @@ func AuthMiddleware(next http.Handler) http.Handler {
 		}
 
 		// Validate token and extract user info
-		userID, sessionID, err := validateToken(token)
+		userID, sessionID, err := validator(token)
 		if err != nil {
 			writeJSON(w, http.StatusUnauthorized, map[string]interface{}{
 				"error":   "invalid_token",
@@ -389,9 +399,6 @@ func extractToken(r *http.Request) string {
 }
 
 func validateToken(token string) (string, string, error) {
-	// TODO: Implement actual token validation against auth service
-	// This local validator keeps middleware tests deterministic until the
-	// auth service is wired in.
 	// The real implementation should:
 	//   1. Decode the JWT token
 	//   2. Verify the signature
@@ -404,11 +411,7 @@ func validateToken(token string) (string, string, error) {
 		return "", "", errors.New("invalid authentication token")
 	}
 
-	tokenID := normalizeTokenID(token)
-	if tokenID == "" {
-		return "", "", errors.New("invalid authentication token")
-	}
-	return "user_" + tokenID, "session_" + tokenID, nil
+	return "", "", errors.New("token validation service is not configured")
 }
 
 func normalizeTokenID(token string) string {
