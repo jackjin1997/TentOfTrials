@@ -220,6 +220,21 @@ def encryptly_platform_help() -> str:
     available = ", ".join(sorted(ENCRYPTLY_BINARIES))
     return f"detected {detected}; available: {available}"
 
+
+def format_encryptly_failure(returncode: int, stdout: str, stderr: str) -> str:
+    """Return a useful failure reason without mistaking password-like stdout for an error."""
+    stderr = stderr.strip()
+    stdout = stdout.strip()
+    if stderr:
+        return stderr
+    if stdout:
+        return (
+            f"encryptly pack exited with code {returncode} and printed only stdout "
+            f"({len(stdout)} bytes); no diagnostic .logd was created"
+        )
+    return f"encryptly pack exited with code {returncode} without stderr or stdout"
+
+
 class Colors:
     GREEN = "\033[92m"
     YELLOW = "\033[93m"
@@ -463,6 +478,7 @@ def build_diagnostic_report(
         "commit": commit_id,
         "diagnostic_logd": diagnostic_logd,
         "diagnostic_logd_error": logd_error,
+        "skip_logd": bool(logd_error and not logd_relpaths),
         "chunked": chunked,
         "chunk_size_bytes": DIAGNOSTIC_CHUNK_SIZE if chunked else None,
         "password": password,
@@ -577,7 +593,7 @@ def generate_logd(
             timeout=300,
         )
         if sr.returncode != 0:
-            error = sr.stderr.strip() or sr.stdout.strip() or "encryptly pack failed"
+            error = format_encryptly_failure(sr.returncode, sr.stdout, sr.stderr)
             print(
                 f"    {color('✗', Colors.RED)} {logd_path.relative_to(ROOT)} creation failed: "
                 f"{error}"
