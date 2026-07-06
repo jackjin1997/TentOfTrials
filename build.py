@@ -569,7 +569,7 @@ def generate_logd(
                 "--include",
                 str(workspace),
                 "--max-file-size",
-                "10000",
+                "35840",
             ],
             cwd=str(ROOT),
             capture_output=True,
