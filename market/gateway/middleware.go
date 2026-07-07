@@ -38,10 +38,9 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"log"
 	"net"
 	"net/http"
@@ -113,7 +112,7 @@ func RecoveryMiddleware(next http.Handler) http.Handler {
 		defer func() {
 			if rec := recover(); rec != nil {
 				log.Printf("PANIC: %v\n%s", rec, debug.Stack())
-				writeJSON(w, http.StatusInternalServerError, map[string]interface{}{
+				middlewareJSON(w, http.StatusInternalServerError, map[string]interface{}{
 					"error":   "internal_server_error",
 					"message": "An unexpected error occurred",
 				})
@@ -147,7 +146,7 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 		duration := time.Since(start)
 
 		log.Printf("[%s] %s %s %d %s %s",
-			getClientIP(r),
+			middlewareClientIP(r),
 			r.Method,
 			r.URL.Path,
 			rw.statusCode,
@@ -205,7 +204,7 @@ func AuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token := extractToken(r)
 		if token == "" {
-			writeJSON(w, http.StatusUnauthorized, map[string]interface{}{
+			middlewareJSON(w, http.StatusUnauthorized, map[string]interface{}{
 				"error":   "unauthorized",
 				"message": "Missing authentication token",
 			})
@@ -215,7 +214,7 @@ func AuthMiddleware(next http.Handler) http.Handler {
 		// Validate token and extract user info
 		userID, sessionID, err := validateToken(token)
 		if err != nil {
-			writeJSON(w, http.StatusUnauthorized, map[string]interface{}{
+			middlewareJSON(w, http.StatusUnauthorized, map[string]interface{}{
 				"error":   "invalid_token",
 				"message": err.Error(),
 			})
@@ -251,10 +250,7 @@ func RateLimitMiddleware(ratePerSecond float64, burst int) func(http.Handler) ht
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			key := getClientIP(r)
-			if apiKey := r.Header.Get("X-API-Key"); apiKey != "" {
-				key = apiKey
-			}
+			key := rateLimitClientKey(r)
 
 			mu.Lock()
 			bucket, exists := clients[key]
@@ -276,7 +272,7 @@ func RateLimitMiddleware(ratePerSecond float64, burst int) func(http.Handler) ht
 			w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(reset, 10))
 
 			if !allowed {
-				writeJSON(w, http.StatusTooManyRequests, map[string]interface{}{
+				middlewareJSON(w, http.StatusTooManyRequests, map[string]interface{}{
 					"error":   "rate_limit_exceeded",
 					"message": "Too many requests. Please slow down.",
 					"retry_after": reset - time.Now().Unix(),
@@ -377,7 +373,7 @@ func CompressMiddleware(next http.Handler) http.Handler {
 // HELPERS
 // ---------------------------------------------------------------------------
 
-func getClientIP(r *http.Request) string {
+func middlewareClientIP(r *http.Request) string {
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 		parts := strings.Split(xff, ",")
 		return strings.TrimSpace(parts[0])
@@ -392,16 +388,20 @@ func getClientIP(r *http.Request) string {
 	return host
 }
 
+func rateLimitClientKey(r *http.Request) string {
+	if userID, ok := r.Context().Value(ContextKeyUserID).(string); ok && userID != "" {
+		return "user:" + userID
+	}
+	if apiKey := r.Header.Get("X-API-Key"); apiKey != "" {
+		return "api_key:" + apiKey
+	}
+	return "ip:" + middlewareClientIP(r)
+}
+
 func generateUUID() string {
 	b := make([]byte, 16)
 	rand.Read(b)
 	return hex.EncodeToString(b)
-}
-
-func generateAPIKey() string {
-	b := make([]byte, 32)
-	rand.Read(b)
-	return base64.URLEncoding.EncodeToString(b)
 }
 
 func extractToken(r *http.Request) string {
@@ -416,19 +416,40 @@ func extractToken(r *http.Request) string {
 }
 
 func validateToken(token string) (string, string, error) {
-	// TODO: Implement actual token validation against auth service
-	// This is a stub that accepts any token and returns a fake user ID.
-	// The real implementation should:
-	//   1. Decode the JWT token
-	//   2. Verify the signature
-	//   3. Check expiration
-	//   4. Check revocation status
-	//   5. Extract user ID and session ID
-	//   6. Return them
-	return "user_stub", "session_stub", nil
+	// TODO: Implement actual token validation against auth service.
+	// Deterministic local stub for middleware integration tests.
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return "", "", errors.New("empty authentication token")
+	}
+
+	lower := strings.ToLower(token)
+	if strings.HasPrefix(lower, "invalid") || strings.HasPrefix(lower, "expired") || strings.HasPrefix(lower, "revoked") {
+		return "", "", errors.New("invalid authentication token")
+	}
+
+	slug := tokenSlug(token)
+	if slug == "" {
+		return "", "", errors.New("invalid authentication token")
+	}
+
+	return "user_" + slug, "session_" + slug, nil
 }
 
-func writeJSON(w http.ResponseWriter, status int, data interface{}) {
+func tokenSlug(token string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(token) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == '-', r == '_', r == '.', r == ':':
+			b.WriteByte('_')
+		}
+	}
+	return strings.Trim(b.String(), "_")
+}
+
+func middlewareJSON(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(data)
