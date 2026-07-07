@@ -1,6 +1,10 @@
-## Summary
+"""
+Template for pull request descriptions in the TentOfTrials repository.
+"""
 
-<!-- Required: Briefly describe what this PR does and why. -->
+## Description
+
+Please include a summary of the changes and the related issue. Please also include relevant motivation and context.
 
 ## Changes
 
