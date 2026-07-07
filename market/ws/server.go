@@ -82,15 +82,25 @@ func (h *Hub) Run() {
 
 		case message := <-h.broadcast:
 			h.mu.RLock()
+			var stalled []*Client
 			for client := range h.clients {
 				select {
 				case client.send <- message:
 				default:
-					close(client.send)
-					delete(h.clients, client)
+					stalled = append(stalled, client)
 				}
 			}
 			h.mu.RUnlock()
+			if len(stalled) > 0 {
+				h.mu.Lock()
+				for _, client := range stalled {
+					if _, ok := h.clients[client]; ok {
+						close(client.send)
+						delete(h.clients, client)
+					}
+				}
+				h.mu.Unlock()
+			}
 		}
 	}
 }
