@@ -1,0 +1,10 @@
+Tent of Trials - Build Summary
+==================================================
+generated_at: 2026-07-08T23:05:00Z
+generator: test_build_diagnostics.py
+total_modules: 1
+passed: 1
+failed: 0
+
+module results:
+  test_build_diagnostics: PASS (7 tests: metadata, single path, chunked, failure, password, mixed, pr_note)
