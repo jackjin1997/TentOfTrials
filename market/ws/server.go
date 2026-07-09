@@ -80,17 +80,27 @@ func (h *Hub) Run() {
 				zap.Int("total", len(h.clients)),
 			)
 
-		case message := <-h.broadcast:
-			h.mu.RLock()
-			for client := range h.clients {
-				select {
-				case client.send <- message:
-				default:
-					close(client.send)
-					delete(h.clients, client)
-				}
+	case message := <-h.broadcast:
+		h.mu.RLock()
+		var slow []*Client
+		for client := range h.clients {
+			select {
+			case client.send <- message:
+			default:
+				close(client.send)
+				slow = append(slow, client)
 			}
-			h.mu.RUnlock()
+		}
+		h.mu.RUnlock()
+		// Remove slow clients under a write lock to avoid mutating the
+		// map while readers may be iterating it.
+		if len(slow) > 0 {
+			h.mu.Lock()
+			for _, c := range slow {
+				delete(h.clients, c)
+			}
+			h.mu.Unlock()
+		}
 		}
 	}
 }
